@@ -1,4 +1,4 @@
-const CACHE_STATIC = "mnu411-static-v1";
+const CACHE_STATIC = "mnu411-static-v2";
 const CACHE_CDN = "mnu411-cdn-v1";
 
 const APP_SHELL = [
