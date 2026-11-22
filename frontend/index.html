@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#1e2533" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="icon" type="image/svg+xml" href="icons/icon.svg" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="MNU411" />
+  <title>MNU411 — Calculadora Científica de Métodos Numéricos</title>
+
+  <!-- KaTeX para renderizar símbolos matemáticos reales en las teclas -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" />
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+
+  <!-- MathLive para escritura matemática natural (Natural Display sin ^ ni *) -->
+  <script defer src="https://cdn.jsdelivr.net/npm/mathlive@0.101.0/dist/mathlive.min.js"></script>
+
+  <link rel="stylesheet" href="css/calculator.css" />
+</head>
+<body>
+  <div class="app-workspace" id="app-workspace">
+    <!-- =================================================================== -->
+    <!-- IZQUIERDA / MÓVIL: CHASIS CALCULADORA CIENTÍFICA CASIO MNU411       -->
+    <!-- =================================================================== -->
+    <main class="calculator-chassis" aria-label="Calculadora Científica MNU411">
+      <!-- Placa superior estilo Casio fx-82MS / ClassWiz -->
+      <header class="calc-brand-bar">
+        <div class="brand-left">
+          <span class="brand-logo">MNU411</span>
+          <span class="brand-model">fx-NUMÉRICA</span>
+        </div>
+        <div class="brand-right">
+          <span class="brand-vpam">NATURAL-V.P.A.M.</span>
+          <span class="solar-cell" aria-hidden="true"></span>
+        </div>
+      </header>
+
+      <!-- Pantalla LCD de Escritura Natural -->
+      <section class="lcd-bezel">
+        <div class="lcd-screen">
+          <!-- Barra de estado superior -->
+          <div class="lcd-status-bar">
+            <div class="status-flags">
+              <span id="flag-shift" class="flag flag-shift">SHIFT</span>
+              <span id="flag-alpha" class="flag flag-alpha">ALPHA</span>
+              <span class="flag flag-rad active">RAD</span>
+            </div>
+            <button type="button" id="btn-status-mode" class="mode-pill" title="Cambiar módulo numérico">
+              M0 · CALC
+            </button>
+          </div>
+
+          <!-- Área de entrada matemática natural (MathLive) -->
+          <div class="lcd-math-area">
+            <span id="lcd-prompt-label" class="lcd-prompt">Expr:</span>
+            <math-field
+              id="math-display"
+              virtual-keyboard-mode="off"
+              inputmode="none"
+              default-mode="math"
+              smart-fence="true"
+              smart-superscript="true"
+              aria-label="Pantalla de expresión matemática"
+            ></math-field>
+          </div>
+
+          <!-- Barra rápida de variables (se activa en M1 Propagación / Multivariable) -->
+          <div id="var-quick-bar" class="var-quick-bar hidden" aria-label="Variables rápidas">
+            <button type="button" class="var-chip" data-latex="x_{1}" data-katex="x_1"></button>
+            <button type="button" class="var-chip" data-latex="x_{2}" data-katex="x_2"></button>
+            <button type="button" class="var-chip" data-latex="x_{3}" data-katex="x_3"></button>
+            <button type="button" class="var-chip" data-latex="x_{4}" data-katex="x_4"></button>
+            <button type="button" class="var-chip" data-latex="\left|#0\right|" data-katex="|x|"></button>
+          </div>
+
+          <!-- Línea inferior: mensajes amigables + Resultado numérico y Ans -->
+          <div class="lcd-output-bar">
+            <span id="lcd-message" class="lcd-message">Listo</span>
+            <div class="lcd-result-box">
+              <span id="ans-badge" class="ans-badge hidden">Ans</span>
+              <span id="lcd-result" class="lcd-result">0</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Selector rápido de Módulos (1 toque sin menús ocultos) -->
+      <nav class="module-strip" aria-label="Módulos MNU411">
+        <button type="button" class="mod-tab active" data-mod="M0">Calc</button>
+        <button type="button" class="mod-tab" data-mod="M1">M1 Err</button>
+        <button type="button" class="mod-tab" data-mod="M2">M2 Raíz</button>
+        <button type="button" class="mod-tab" data-mod="M3">M3 Sist</button>
+        <button type="button" class="mod-tab" data-mod="M5">M5 Interp</button>
+        <button type="button" class="mod-tab" data-mod="M6">M6 Proy</button>
+      </nav>
+
+      <!-- ================================================================= -->
+      <!-- CUERPO DEL TECLADO TÁCTIL (CERO SINTAXIS RARA)                    -->
+      <!-- ================================================================= -->
+      <section class="keypad-body">
+        <!-- Fila 1: SHIFT, ALPHA, Cruceta REPLAY, MODE y GGB/PDF -->
+        <div class="control-row">
+          <div class="control-side-col">
+            <button type="button" id="key-shift" class="key key-shift" data-action="shift">
+              SHIFT
+            </button>
+            <button type="button" id="key-alpha" class="key key-alpha" data-action="alpha">
+              ALPHA
+            </button>
+          </div>
+
+          <!-- Cruceta REPLAY estilo Casio -->
+          <div class="replay-wrapper">
+            <div class="replay-pad" role="group" aria-label="Cruceta de navegación REPLAY">
+              <button type="button" class="replay-btn replay-up" data-nav="up" aria-label="Arriba">▲</button>
+              <button type="button" class="replay-btn replay-left" data-nav="left" aria-label="Izquierda">◄</button>
+              <span class="replay-center">REPLAY</span>
+              <button type="button" class="replay-btn replay-right" data-nav="right" aria-label="Derecha">►</button>
+              <button type="button" class="replay-btn replay-down" data-nav="down" aria-label="Abajo">▼</button>
+            </div>
+          </div>
+
+          <div class="control-side-col">
+            <button type="button" id="key-mode" class="key key-ctrl" data-action="mode">
+              MODE
+            </button>
+            <button type="button" id="key-ggb" class="key key-ctrl key-accent-blue" data-action="open-panel">
+              GGB / PDF
+            </button>
+          </div>
+        </div>
+
+        <!-- Bloque Científico (5 columnas × 3 filas = 15 teclas) -->
+        <div class="sci-grid">
+          <!-- Fila 2: Fracción, Raíz, x², Potencia, ln/e^x -->
+          <div class="key-slot">
+            <div class="key-legends">
+              <span class="leg-shift" data-katex="\frac{a}{b}"></span>
+            </div>
+            <button
+              type="button"
+              class="key key-sci"
+              data-latex="\frac{#@}{#?}"
+              data-shift-latex="\frac{#@}{#?}"
+              data-katex="\frac{\square}{\square}"
+              aria-label="Fracción"
+            ></button>
+          </div>
+
+          <div class="key-slot">
+            <div class="key-legends">
+              <span class="leg-shift" data-katex="\sqrt[3]{\square}"></span>
+            </div>
+            <button
+              type="button"
+              class="key key-sci"
+              data-latex="\sqrt{#@}"
+              data-shift-latex="\sqrt[3]{#@}"
+              data-katex="\sqrt{\square}"
+              aria-label="Raíz cuadrada o cúbica"
+            ></button>
+          </div>
+
+          <div class="key-slot">
+            <div class="key-legends">
+              <span class="leg-shift" data-katex="x^3"></span>
+            </div>
+            <button
+              type="button"
+              class="key key-sci"
+              data-latex="^{2}"
+              data-shift-latex="^{3}"
+              data-katex="x^2"
+              aria-label="Al cuadrado o al cubo"
+            ></button>
+          </div>
+
+          <div class="key-slot">
+            <div class="key-legends">
+              <span class="leg-shift" data-katex="\sqrt[\square]{\square}"></span>
+            </div>
+            <button
+              type="button"
+              class="key key-sci"
+              data-latex="^{#?}"
+              data-shift-latex="\sqrt[#?]{#@}"
+              data-katex="\square^{\square}"
+              aria-label="Potencia o raíz enésima"
+            ></button>
+          </div>
+
+          <div class="key-slot">
+            <div class="key-legends">
+              <span class="leg-shift" data-katex="e^{\square}"></span>
+            </div>
+            <button
+              type="button"
+              class="key key-sci"
+              data-latex="\ln\left(#@\right)"
+              data-shift-latex="e^{#@}"
+              data-katex="\ln"
+              aria-label="Logaritmo natural o exponencial"
+            ></button>
+          </div>
+
+          <!-- Fila 3: log/10^x, sin, cos, tan, variable x -->
+          <div class="key-slot">
+            <div class="key-legends">
+              <span class="leg-shift" data-katex="10^{\square}"></span>
+            </div>
+            <button
+              type="button"
+              class="key key-sci"
+              data-latex="\log\left(#@\right)"
+              data-shift-latex="10^{#@}"
+              data-katex="\log"
+              aria-label="Logaritmo base 10 o potencia de 10"
+            ></button>
+          </div>
+
+          <div class="key-slot">
+            <div class="key-legends">
+              <span class="leg-shift" data-katex="\sin^{-1}"></span>
+            </div>
+            <button
+              type="button"
+              class="key key-sci"
+              data-latex="\sin\left(#@\right)"
+              data-shift-latex="\arcsin\left(#@\right)"
+              data-katex="\sin"
+              aria-label="Seno o arcoseno"
+            ></button>
+          </div>
+
+          <div class="key-slot">
+            <div class="key-legends">
+              <span class="leg-shift" data-katex="\cos^{-1}"></span>
+            </div>
+            <button
+              type="button"
+              class="key key-sci"
+              data-latex="\cos\left(#@\right)"
+              data-shift-latex="\arccos\left(#@\right)"
+              data-katex="\cos"
+              aria-label="Coseno o arcocoseno"
+            ></button>
+          </div>
+
+          <div class="key-slot">
+            <div class="key-legends">
+              <span class="leg-shift" data-katex="\tan^{-1}"></span>
+            </div>
+            <button
+              type="button"
+              class="key key-sci"
+              data-latex="\tan\left(#@\right)"
+              data-shift-latex="\arctan\left(#@\right)"
+              data-katex="\tan"
+              aria-label="Tangente o arcotangente"
+            ></button>
+          </div>
+
+          <div class="key-slot">
+            <div class="key-legends">
+              <span class="leg-shift" data-katex="e"></span>
+              <span class="leg-alpha" data-katex="x_1"></span>
+            </div>
+            <button
+              type="button"
+              class="key key-sci key-var"
+              data-latex="x"
+              data-shift-latex="e"
+              data-alpha-latex="x_{1}"
+              data-katex="x"
+              aria-label="Variable x, constante e o variable x1"
+            ></button>
+          </div>
+
+          <!-- Fila 4: (, ), coma, DEL, AC -->
+          <div class="key-slot">
+            <div class="key-legends">
+              <span class="leg-shift" data-katex="|\square|"></span>
+            </div>
+            <button
+              type="button"
+              class="key key-sci"
+              data-latex="\left(#@\right)"
+              data-shift-latex="\left|#@\right|"
+              data-katex="(\;)"
+              aria-label="Paréntesis o valor absoluto"
+            ></button>
+          </div>
+
+          <div class="key-slot">
+            <div class="key-legends">
+              <span class="leg-alpha" data-katex="x_2"></span>
+            </div>
+            <button
+              type="button"
+              class="key key-sci"
+              data-latex=")"
+              data-alpha-latex="x_{2}"
+              data-katex=")"
+              aria-label="Cerrar paréntesis o variable x2"
+            ></button>
+          </div>
+
+          <div class="key-slot">
+            <div class="key-legends">
+              <span class="leg-alpha" data-katex="x_3"></span>
+            </div>
+            <button
+              type="button"
+              class="key key-sci"
+              data-latex=","
+              data-alpha-latex="x_{3}"
+              data-katex=","
+              aria-label="Coma separadora o variable x3"
+            ></button>
+          </div>
+
+          <div class="key-slot">
+            <div class="key-legends">
+              <span class="leg-shift">INS</span>
+            </div>
+            <button type="button" class="key key-del" data-action="del" aria-label="Borrar elemento">
+              DEL
+            </button>
+          </div>
+
+          <div class="key-slot">
+            <div class="key-legends">
+              <span class="leg-shift">OFF</span>
+            </div>
+            <button type="button" class="key key-ac" data-action="ac" aria-label="Limpiar pantalla">
+              AC
+            </button>
+          </div>
+        </div>
+
+        <!-- Bloque Numérico y Ejecución (5 columnas × 4 filas = 20 teclas) -->
+        <div class="num-grid">
+          <!-- Fila 5 -->
+          <div class="key-slot">
+            <button type="button" class="key key-num" data-latex="7">7</button>
+          </div>
+          <div class="key-slot">
+            <button type="button" class="key key-num" data-latex="8">8</button>
+          </div>
+          <div class="key-slot">
+            <button type="button" class="key key-num" data-latex="9">9</button>
+          </div>
+          <div class="key-slot">
+            <div class="key-legends">
+              <span class="leg-shift" data-katex="\pi"></span>
+            </div>
+            <button
+              type="button"
+              class="key key-op"
+              data-latex="\times"
+              data-shift-latex="\pi"
+              data-katex="\times"
+              aria-label="Multiplicar o número pi"
+            ></button>
+          </div>
+          <div class="key-slot">
+            <div class="key-legends">
+              <span class="leg-alpha" data-katex="e"></span>
+            </div>
+            <button
+              type="button"
+              class="key key-op"
+              data-latex="\div"
+              data-alpha-latex="e"
+              data-katex="\div"
+              aria-label="Dividir o constante e"
+            ></button>
+          </div>
+
+          <!-- Fila 6 -->
+          <div class="key-slot">
+            <button type="button" class="key key-num" data-latex="4">4</button>
+          </div>
+          <div class="key-slot">
+            <button type="button" class="key key-num" data-latex="5">5</button>
+          </div>
+          <div class="key-slot">
+            <button type="button" class="key key-num" data-latex="6">6</button>
+          </div>
+          <div class="key-slot">
+            <button type="button" class="key key-op" data-latex="+" data-katex="+"></button>
+          </div>
+          <div class="key-slot">
+            <button type="button" class="key key-op" data-latex="-" data-katex="-"></button>
+          </div>
+
+          <!-- Fila 7 -->
+          <div class="key-slot">
+            <button type="button" class="key key-num" data-latex="1">1</button>
+          </div>
+          <div class="key-slot">
+            <button type="button" class="key key-num" data-latex="2">2</button>
+          </div>
+          <div class="key-slot">
+            <button type="button" class="key key-num" data-latex="3">3</button>
+          </div>
+          <div class="key-slot">
+            <button
+              type="button"
+              class="key key-num key-sci-exp"
+              data-latex="\times 10^{#?}"
+              data-katex="\times 10^x"
+              aria-label="Notación científica por diez a la x"
+            ></button>
+          </div>
+          <div class="key-slot">
+            <button
+              type="button"
+              class="key key-num key-ans"
+              data-latex="\text{Ans}"
+              aria-label="Último resultado Ans"
+            >
+              Ans
+            </button>
+          </div>
+
+          <!-- Fila 8 -->
+          <div class="key-slot">
+            <button type="button" class="key key-num" data-latex="0">0</button>
+          </div>
+          <div class="key-slot">
+            <button type="button" class="key key-num" data-latex=".">.</button>
+          </div>
+          <div class="key-slot">
+            <button
+              type="button"
+              class="key key-num"
+              data-latex="-"
+              data-katex="(-)"
+              aria-label="Signo negativo"
+            ></button>
+          </div>
+          <div class="key-slot">
+            <button
+              type="button"
+              id="key-table"
+              class="key key-table"
+              data-action="toggle-table"
+              aria-label="Abrir tabla de puntos o matriz"
+            >
+              TABLA
+            </button>
+          </div>
+          <div class="key-slot">
+            <button
+              type="button"
+              id="key-equals"
+              class="key key-equals"
+              data-action="calculate"
+              aria-label="Calcular resultado"
+            >
+              =
+            </button>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- =================================================================== -->
+    <!-- DERECHA (PC >= 768px) / CAJÓN MÓVIL: ESTACIÓN DE MÉTODOS NUMÉRICOS  -->
+    <!-- =================================================================== -->
+    <aside class="workstation-panel" id="workstation-panel" aria-label="Panel de Métodos Numéricos">
+      <header class="ws-header">
+        <div class="ws-title-group">
+          <span id="ws-module-badge" class="ws-badge">M0</span>
+          <h1 id="ws-module-title" class="ws-title">Calculadora Científica Estándar</h1>
+        </div>
+        <div class="ws-actions">
+          <button type="button" id="btn-export-pdf" class="ws-btn ws-btn-pdf" disabled>
+            PDF
+          </button>
+          <button type="button" id="btn-close-panel" class="ws-btn ws-btn-close" aria-label="Volver a calculadora">
+            ✕
+          </button>
+        </div>
+      </header>
+
+      <!-- Sub-pestañas del panel derecho -->
+      <div class="ws-tabs" role="tablist">
+        <button type="button" class="ws-tab active" data-ws-tab="params">Parámetros y Datos</button>
+        <button type="button" class="ws-tab" data-ws-tab="results">Procedimiento y Tablas</button>
+        <button type="button" class="ws-tab" data-ws-tab="geogebra">GeoGebra</button>
+      </div>
+
+      <div class="ws-body">
+        <!-- Vista 1: Parámetros del Módulo + Cuadrícula Táctil Matrices/Puntos -->
+        <div id="ws-view-params" class="ws-view active">
+          <div id="module-params-container" class="ws-card">
+            <p class="ws-placeholder-text">
+              Escribe cualquier expresión matemática usando las teclas de la calculadora (fracciones, raíces, potencias, logaritmos o funciones trigonométricas) y presiona <strong>=</strong>.
+            </p>
+            <p class="ws-placeholder-text">
+              Para resolver ecuaciones no lineales, sistemas lineales, interpolación o proyecciones, selecciona un módulo en <strong>MODE</strong> o en la barra superior (<strong>M1</strong> a <strong>M6</strong>).
+            </p>
+          </div>
+          <div id="matrix-grid-container" class="ws-card hidden"></div>
+        </div>
+
+        <!-- Vista 2: Resultados y Tablas de Iteración -->
+        <div id="ws-view-results" class="ws-view">
+          <div id="results-container" class="ws-card">
+            <p class="ws-placeholder-text">Los resultados, derivadas simbólicas y tablas de iteración aparecerán aquí al presionar <strong>=</strong>.</p>
+          </div>
+        </div>
+
+        <!-- Vista 3: Lienzo GeoGebra Nativo (Pieza 3) -->
+        <div id="ws-view-geogebra" class="ws-view">
+          <div id="geogebra-container" class="ggb-box">
+            <p class="ws-placeholder-text">Gráfica interactiva GeoGebra disponible al ejecutar un cálculo funcional.</p>
+          </div>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <!-- GeoGebra Apps API (para gráficas nativas) -->
+  <script defer src="https://www.geogebra.org/apps/deployggb.js"></script>
+
+  <!-- Scripts Pieza 2 + Pieza 3 -->
+  <script defer src="js/display_math.js"></script>
+  <script defer src="js/keypad.js"></script>
+  <script defer src="js/api_client.js"></script>
+  <script defer src="js/geogebra_native.js"></script>
+  <script defer src="js/modules_ui.js"></script>
+  <script>
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => {
+        navigator.serviceWorker
+          .register("/sw.js", { scope: "/" })
+          .catch((err) => console.warn("SW no registrado:", err));
+      });
+    }
+  </script>
+</body>
+</html>

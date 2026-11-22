@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="104" fill="#1e2533" />
+  <rect x="28" y="28" width="456" height="456" rx="82" fill="none" stroke="#3d475c" stroke-width="8" />
+  
+  <rect x="76" y="76" width="360" height="128" rx="18" fill="#c7d5be" />
+  <text x="104" y="132" font-family="monospace" font-weight="bold" font-size="34" fill="#111827">MNU411</text>
+  <text x="410" y="180" text-anchor="end" font-family="serif" font-style="italic" font-weight="bold" font-size="44" fill="#0f172a">fx(x)=0</text>
+  
+  <rect x="76" y="236" width="104" height="64" rx="12" fill="#334155" />
+  <rect x="204" y="236" width="104" height="64" rx="12" fill="#334155" />
+  <rect x="332" y="236" width="104" height="64" rx="12" fill="#e11d48" />
+  <rect x="76" y="324" width="104" height="64" rx="12" fill="#e2e8f0" />
+  <rect x="204" y="324" width="104" height="64" rx="12" fill="#e2e8f0" />
+  <rect x="332" y="324" width="104" height="64" rx="12" fill="#0284c7" />
+  <text x="384" y="368" text-anchor="middle" font-family="sans-serif" font-weight="900" font-size="38" fill="#ffffff">=</text>
+</svg>

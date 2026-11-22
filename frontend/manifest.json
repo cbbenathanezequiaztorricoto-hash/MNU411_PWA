@@ -1,0 +1,33 @@
+{
+  "name": "MNU411 — Calculadora Científica de Métodos Numéricos",
+  "short_name": "MNU411",
+  "description": "Calculadora científica Natural Display y sistema modular de métodos numéricos (M1–M6).",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0f172a",
+  "theme_color": "#1e2533",
+  "lang": "es",
+  "categories": ["education", "utilities"],
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

@@ -1,0 +1,210 @@
+Arrancamos y cerramos la Pieza 4 — Empaquetado PWA Offline y Despliegue 24/7. Con estos archivos, la calculadora MNU411 queda instalable como aplicación nativa en Android, iOS y PC, conserva el teclado LaTeX (MathLive + KaTeX) y la memoria Ans funcionando sin conexión, y expone un enlace HTTPS activo las 24 horas.
+
+1. Manifiesto de Aplicación Web (frontend/manifest.json)
+Crea este archivo dentro de frontend/ para definir el modo pantalla completa (standalone), los colores del chasis Casio y los íconos de inicio:
+
+JSON
+{
+  "name": "MNU411 — Calculadora Científica de Métodos Numéricos",
+  "short_name": "MNU411",
+  "description": "Calculadora científica Natural Display y sistema modular de métodos numéricos (M1–M6).",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0f172a",
+  "theme_color": "#1e2533",
+  "lang": "es",
+  "categories": ["education", "utilities"],
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
+2. Service Worker Offline (frontend/sw.js)
+Crea frontend/sw.js. Implementa tres estrategias:
+
+App Shell (Stale-While-Revalidate): Carga instantánea de HTML, CSS y JS desde caché local y actualización silenciosa cuando hay red.
+
+Fuentes y Librerías LaTeX (Cache-First): Guarda KaTeX y MathLive (cdn.jsdelivr.net) tras la primera apertura para que el teclado y la pantalla natural funcionen incluso en modo avión.
+
+Rutas /api/* (Network-Only con respaldo): Si no hay internet al pulsar =, devuelve un aviso controlado HTTP 503 que se muestra en la línea inferior del LCD sin romper la app.
+
+JavaScript
+const CACHE_STATIC = "mnu411-static-v1";
+const CACHE_CDN = "mnu411-cdn-v1";
+
+const APP_SHELL = [
+  "/",
+  "/index.html",
+  "/manifest.json",
+  "/css/calculator.css",
+  "/js/display_math.js",
+  "/js/keypad.js",
+  "/js/api_client.js",
+  "/js/geogebra_native.js",
+  "/js/modules_ui.js",
+  "/icons/icon.svg",
+  "/icons/icon-192.png",
+  "/icons/icon-512.png"
+];
+
+self.addEventListener("install", (event) => {
+  event.waitUntil(
+    caches.open(CACHE_STATIC).then(async (cache) => {
+      await Promise.allSettled(
+        APP_SHELL.map((url) => cache.add(url).catch(() => null))
+      );
+    })
+  );
+  self.skipWaiting();
+});
+
+self.addEventListener("activate", (event) => {
+  const validCaches = new Set([CACHE_STATIC, CACHE_CDN]);
+  event.waitUntil(
+    caches.keys().then((keys) =>
+      Promise.all(
+        keys.map((key) => {
+          if (!validCaches.has(key)) {
+            return caches.delete(key);
+          }
+          return null;
+        })
+      )
+    )
+  );
+  self.clients.claim();
+});
+
+self.addEventListener("fetch", (event) => {
+  const { request } = event;
+  const url = new URL(request.url);
+
+  // 1. Peticiones al motor matemático FastAPI (/api/*)
+  if (request.method !== "GET" || url.pathname.startsWith("/api/")) {
+    event.respondWith(
+      fetch(request).catch(
+        () =>
+          new Response(
+            JSON.stringify({
+              detail:
+                "Sin conexión con el servidor Python. Verifica tu red para ejecutar cálculos."
+            }),
+            {
+              status: 503,
+              headers: { "Content-Type": "application/json" }
+            }
+          )
+      )
+    );
+    return;
+  }
+
+  // 2. Recursos CDN (KaTeX, MathLive y fuentes matemáticas) -> Cache-First
+  if (url.hostname.includes("jsdelivr.net")) {
+    event.respondWith(
+      caches.open(CACHE_CDN).then(async (cache) => {
+        const cached = await cache.match(request);
+        if (cached) return cached;
+        try {
+          const fresh = await fetch(request);
+          if (fresh.ok) cache.put(request, fresh.clone());
+          return fresh;
+        } catch (_) {
+          return new Response("", { status: 504 });
+        }
+      })
+    );
+    return;
+  }
+
+  // 3. Archivos locales de la calculadora (App Shell) -> Stale-While-Revalidate
+  if (url.origin === self.location.origin) {
+    event.respondWith(
+      caches.open(CACHE_STATIC).then(async (cache) => {
+        const cached = await cache.match(request);
+        const networkPromise = fetch(request)
+          .then((fresh) => {
+            if (fresh && fresh.ok) {
+              cache.put(request, fresh.clone());
+            }
+            return fresh;
+          })
+          .catch(() => null);
+
+        if (cached) return cached;
+        const networkResp = await networkPromise;
+        if (networkResp) return networkResp;
+
+        if (request.mode === "navigate") {
+          return cache.match("/index.html");
+        }
+        return new Response("Recurso no disponible offline", { status: 504 });
+      })
+    );
+  }
+});
+3. Íconos de Instalación (frontend/icons/icon.svg + Generador PNG)
+Android/Chrome exige íconos PNG de 192×192 y 512×512 para habilitar el botón nativo de instalación.
+
+Guarda el ícono vectorial en frontend/icons/icon.svg:
+
+
+Ejecuta este script una sola vez en la raíz del proyecto (python generar_iconos.py) para generar icon-192.png y icon-512.png sin instalar librerías extra:
+
+Python
+import os
+import struct
+import zlib
+
+def crear_png_casio(ruta: str, size: int):
+    os.makedirs(os.path.dirname(ruta), exist_ok=True)
+    raw = bytearray()
+    for y in range(size):
+        raw.append(0)  # filtro PNG None
+        ny = y / size
+        for x in range(size):
+            nx = x / size
+            # Fondo chasis oscuro (#1e2533)
+            r, g, b = 30, 37, 51
+            # Pantalla LCD verde Casio (#c7d5be)
+            if 0.15 <= nx <= 0.85 and 0.15 <= ny <= 0.38:
+                r, g, b = 199, 213, 190
+            # Tecla '=' azul (#0284c7)
+            elif 0.64 <= nx <= 0.85 and 0.64 <= ny <= 0.82:
+                r, g, b = 2, 132, 199
+            # Tecla 'AC' roja (#e11d48)
+            elif 0.64 <= nx <= 0.85 and 0.44 <= ny <= 0.60:
+                r, g, b = 225, 29, 72
+            # Teclas numéricas claras (#e2e8f0)
+            elif 0.15 <= nx <= 0.60 and 0.44 <= ny <= 0.82:
+                if int(nx * 10) % 2 == 1 and int(ny * 10) % 2 == 0:
+                    r, g, b = 226, 232, 240
+            raw.extend((r, g, b, 255))
+
+    def chunk(tag: bytes, data: bytes) -> bytes:
+        return (
+            struct.pack("!I", len(data))
+            + tag
+            + data
+            + struct.pack("!I", zlib.crc32(tag + data) & 0xFFFFFFFF)
+        )
+
+    ihdr = struct.pack("!IIBBBBB", size, size, 8, 6, 0, 0, 0)
