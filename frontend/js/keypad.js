@@ -102,7 +102,8 @@ class ScientificKeypadController {
         } else if (action === "toggle-table") {
           this.openWorkstation("params", true);
         } else if (action === "open-panel") {
-          this.openWorkstation("geogebra", false);
+          const targetTab = window.MNU411.modulesUI?.lastPdfPayload ? "results" : "geogebra";
+          this.openWorkstation(targetTab, false);
         } else if (action === "calculate") {
           this.handleCalculate();
         }
@@ -258,6 +259,7 @@ class ScientificKeypadController {
       }
 
       this.display.setResult(data.valor, true);
+      this.display.saveHistory(latex, data.valor);
       this.display.setMessage("OK");
     } catch (_) {
       this.display.setMessage("Inicie el servidor API (uvicorn)", true);

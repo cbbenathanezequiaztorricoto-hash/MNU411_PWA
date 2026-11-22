@@ -8437,6 +8437,8 @@ class MathDisplayController {
     this.varBarEl = document.getElementById("var-quick-bar");
 
     this.ansValue = this._loadAns();
+    this.history = JSON.parse(localStorage.getItem("mnu411_history") || "[]");
+    this.historyIndex = this.history.length;
     this._updateAnsBadge();
     this._initMathField();
   }
@@ -8467,6 +8469,8 @@ class MathDisplayController {
     }
     this.mf.setAttribute("inputmode", "none");
     this.mf.mathVirtualKeyboardPolicy = "manual";
+    this.mf.smartMode = false;
+    this.mf.mode = "math";
 
     // Evitar atajos de teclado crudos que muestren barras '\' al usuario
     this.mf.addEventListener("focus", () => {
@@ -8499,6 +8503,9 @@ class MathDisplayController {
   insertLatex(latexSnippet) {
     if (!this.mf) return;
     this.mf.focus({ preventScroll: true });
+    if (this.mf.mode !== "math") {
+      this.mf.mode = "math";
+    }
 
     // Si el usuario pulsa potencia (x² o □^□) en una pantalla vacía, anteponer cuadro base
     const current = this.getLatex().trim();
@@ -8525,10 +8532,36 @@ class MathDisplayController {
       down: "moveDown",
     };
 
+    const beforePos = this.mf.position;
     const cmd = commandMap[direction];
     if (cmd) {
       this.mf.executeCommand(cmd);
     }
+
+    // Si ▲ o ▼ no movieron el cursor dentro de una fracción/potencia, recorrer historial
+    if ((direction === "up" || direction === "down") && this.mf.position === beforePos && this.history.length > 0) {
+      if (direction === "up" && this.historyIndex > 0) {
+        this.historyIndex -= 1;
+      } else if (direction === "down" && this.historyIndex < this.history.length - 1) {
+        this.historyIndex += 1;
+      } else {
+        return;
+      }
+      const item = this.history[this.historyIndex];
+      if (item) {
+        this.setLatex(item.latex);
+        this.setResult(item.result, false);
+        this.setMessage(`Historial (${this.historyIndex + 1}/${this.history.length})`);
+      }
+    }
+  }
+
+  saveHistory(latex, result) {
+    if (!latex) return;
+    this.history.push({ latex, result });
+    if (this.history.length > 30) this.history.shift();
+    this.historyIndex = this.history.length;
+    localStorage.setItem("mnu411_history", JSON.stringify(this.history));
   }
 
   /**
@@ -8888,7 +8921,8 @@ class ScientificKeypadController {
         } else if (action === "toggle-table") {
           this.openWorkstation("params", true);
         } else if (action === "open-panel") {
-          this.openWorkstation("geogebra", false);
+          const targetTab = window.MNU411.modulesUI?.lastPdfPayload ? "results" : "geogebra";
+          this.openWorkstation(targetTab, false);
         } else if (action === "calculate") {
           this.handleCalculate();
         }
@@ -9044,6 +9078,7 @@ class ScientificKeypadController {
       }
 
       this.display.setResult(data.valor, true);
+      this.display.saveHistory(latex, data.valor);
       this.display.setMessage("OK");
     } catch (_) {
       this.display.setMessage("Inicie el servidor API (uvicorn)", true);
@@ -9760,9 +9795,18 @@ class ModulesUIController {
 
       // Renderizar procedimiento y tablas
       this._renderResultsView(payload, res);
+      window.MNU411.display?.saveHistory(
+        window.MNU411.display?.getLatex() || `${this.currentModule} (${this.currentSubtema})`,
+        mainVal
+      );
 
-      // Cambiar a pestaña de resultados
-      window.MNU411.keypad?.openWorkstation("results", false);
+      // En móvil cerrar hoja para ver el resultado en la pantalla LCD; en PC mostrar pestaña resultados
+      if (window.innerWidth < 768) {
+        document.getElementById("workstation-panel")?.classList.remove("mobile-open");
+        window.MNU411.display?.setMessage("Listo · Toca GGB/PDF para ver tabla");
+      } else {
+        window.MNU411.keypad?.openWorkstation("results", false);
+      }
 
       // Actualizar gráfica en GeoGebra
       window.MNU411.geogebra?.plotModuleResult(this.currentModule, this.currentSubtema, payload, res);
@@ -9811,6 +9855,7 @@ class ModulesUIController {
       "exito",
       "mensaje",
       "iteraciones",
+      "terminos",
       "pasos",
       "pasos_matriz",
       "tabla_diferencias",
@@ -9853,6 +9898,11 @@ class ModulesUIController {
     // Tabla de iteraciones (M2, M3 iterativos, M5 Newton/Lagrange)
     if (Array.isArray(res.iteraciones) && res.iteraciones.length > 0) {
       html += this._buildGenericTableHtml("Tabla de Iteraciones / Desglose", res.iteraciones);
+    }
+
+    // Tabla de términos polinomiales (M5 Newton Adelante / Atrás)
+    if (Array.isArray(res.terminos) && res.terminos.length > 0) {
+      html += this._buildGenericTableHtml("Aporte por Orden Polinomial", res.terminos);
     }
 
     // Ranking comparativo (M6 comparar)

@@ -13,6 +13,8 @@ class MathDisplayController {
     this.varBarEl = document.getElementById("var-quick-bar");
 
     this.ansValue = this._loadAns();
+    this.history = JSON.parse(localStorage.getItem("mnu411_history") || "[]");
+    this.historyIndex = this.history.length;
     this._updateAnsBadge();
     this._initMathField();
   }
@@ -43,6 +45,8 @@ class MathDisplayController {
     }
     this.mf.setAttribute("inputmode", "none");
     this.mf.mathVirtualKeyboardPolicy = "manual";
+    this.mf.smartMode = false;
+    this.mf.mode = "math";
 
     // Evitar atajos de teclado crudos que muestren barras '\' al usuario
     this.mf.addEventListener("focus", () => {
@@ -75,6 +79,9 @@ class MathDisplayController {
   insertLatex(latexSnippet) {
     if (!this.mf) return;
     this.mf.focus({ preventScroll: true });
+    if (this.mf.mode !== "math") {
+      this.mf.mode = "math";
+    }
 
     // Si el usuario pulsa potencia (x² o □^□) en una pantalla vacía, anteponer cuadro base
     const current = this.getLatex().trim();
@@ -101,10 +108,36 @@ class MathDisplayController {
       down: "moveDown",
     };
 
+    const beforePos = this.mf.position;
     const cmd = commandMap[direction];
     if (cmd) {
       this.mf.executeCommand(cmd);
     }
+
+    // Si ▲ o ▼ no movieron el cursor dentro de una fracción/potencia, recorrer historial
+    if ((direction === "up" || direction === "down") && this.mf.position === beforePos && this.history.length > 0) {
+      if (direction === "up" && this.historyIndex > 0) {
+        this.historyIndex -= 1;
+      } else if (direction === "down" && this.historyIndex < this.history.length - 1) {
+        this.historyIndex += 1;
+      } else {
+        return;
+      }
+      const item = this.history[this.historyIndex];
+      if (item) {
+        this.setLatex(item.latex);
+        this.setResult(item.result, false);
+        this.setMessage(`Historial (${this.historyIndex + 1}/${this.history.length})`);
+      }
+    }
+  }
+
+  saveHistory(latex, result) {
+    if (!latex) return;
+    this.history.push({ latex, result });
+    if (this.history.length > 30) this.history.shift();
+    this.historyIndex = this.history.length;
+    localStorage.setItem("mnu411_history", JSON.stringify(this.history));
   }
 
   /**

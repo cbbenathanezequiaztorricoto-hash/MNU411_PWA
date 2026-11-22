@@ -700,9 +700,18 @@ class ModulesUIController {
 
       // Renderizar procedimiento y tablas
       this._renderResultsView(payload, res);
+      window.MNU411.display?.saveHistory(
+        window.MNU411.display?.getLatex() || `${this.currentModule} (${this.currentSubtema})`,
+        mainVal
+      );
 
-      // Cambiar a pestaña de resultados
-      window.MNU411.keypad?.openWorkstation("results", false);
+      // En móvil cerrar hoja para ver el resultado en la pantalla LCD; en PC mostrar pestaña resultados
+      if (window.innerWidth < 768) {
+        document.getElementById("workstation-panel")?.classList.remove("mobile-open");
+        window.MNU411.display?.setMessage("Listo · Toca GGB/PDF para ver tabla");
+      } else {
+        window.MNU411.keypad?.openWorkstation("results", false);
+      }
 
       // Actualizar gráfica en GeoGebra
       window.MNU411.geogebra?.plotModuleResult(this.currentModule, this.currentSubtema, payload, res);
@@ -751,6 +760,7 @@ class ModulesUIController {
       "exito",
       "mensaje",
       "iteraciones",
+      "terminos",
       "pasos",
       "pasos_matriz",
       "tabla_diferencias",
@@ -793,6 +803,11 @@ class ModulesUIController {
     // Tabla de iteraciones (M2, M3 iterativos, M5 Newton/Lagrange)
     if (Array.isArray(res.iteraciones) && res.iteraciones.length > 0) {
       html += this._buildGenericTableHtml("Tabla de Iteraciones / Desglose", res.iteraciones);
+    }
+
+    // Tabla de términos polinomiales (M5 Newton Adelante / Atrás)
+    if (Array.isArray(res.terminos) && res.terminos.length > 0) {
+      html += this._buildGenericTableHtml("Aporte por Orden Polinomial", res.terminos);
     }
 
     // Ranking comparativo (M6 comparar)
