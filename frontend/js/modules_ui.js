@@ -861,7 +861,7 @@ class ModulesUIController {
     return {};
   }
 
-  async executeActiveMethod() {
+  async executeActiveMethod(keepPanelOpen = false) {
     this._clearFormError();
     let payload;
     try {
@@ -896,8 +896,8 @@ class ModulesUIController {
         mainVal
       );
 
-      // En móvil cerrar hoja para ver el resultado en la pantalla LCD; en PC mostrar pestaña resultados
-      if (window.innerWidth < 768) {
+      // En móvil cerrar hoja salvo recálculo rápido dentro de resultados; en PC mostrar pestaña resultados
+      if (window.innerWidth < 768 && !keepPanelOpen) {
         document.getElementById("workstation-panel")?.classList.remove("mobile-open");
         window.MNU411.display?.setMessage("Listo · Toca GGB/PDF para ver tabla");
       } else {
@@ -937,9 +937,54 @@ class ModulesUIController {
     if (res.fd2_latex) {
       html += `<div class="res-math-row"><strong>2.ª Derivada:</strong> <span class="katex-render" data-tex="f''(x) = ${res.fd2_latex}"></span></div>`;
     }
-    if (res.polinomio_latex || res.polinomio_expandido_latex) {
+    if (
+      res.polinomio_latex &&
+      res.polinomio_expandido_latex &&
+      res.polinomio_latex !== res.polinomio_expandido_latex
+    ) {
+      html += `<div class="res-math-row"><strong>Polinomio de Lagrange:</strong> <span class="katex-render" data-tex="P(x) = ${res.polinomio_latex}"></span></div>`;
+      html += `<div class="res-math-row"><strong>Polinomio Expandido:</strong> <span class="katex-render" data-tex="P(x) = ${res.polinomio_expandido_latex}"></span></div>`;
+    } else if (res.polinomio_latex || res.polinomio_expandido_latex) {
       const tex = res.polinomio_expandido_latex || res.polinomio_latex;
       html += `<div class="res-math-row"><strong>Polinomio:</strong> <span class="katex-render" data-tex="P(x) = ${tex}"></span></div>`;
+    }
+
+    if (this.currentModule === "M5" && Array.isArray(payload.x_vals)) {
+      const xMin = Math.min(...payload.x_vals);
+      const xMax = Math.max(...payload.x_vals);
+      const step =
+        payload.x_vals.length > 1
+          ? Math.abs(payload.x_vals[1] - payload.x_vals[0]) || 1
+          : 1;
+      const xLeft = Number((xMin - step).toPrecision(6));
+      const xRight = Number((xMax + step).toPrecision(6));
+
+      html += `
+        <div class="m5-extrapolate-bar" style="margin-top:8px; padding:10px 12px; background:#f0fdf4; border:1px solid #86efac; border-radius:10px;">
+          <div style="font-size:0.78rem; font-weight:800; color:#166534; margin-bottom:6px;">
+            ⚡ Extrapolar / Evaluar en otro x* (Rango nodal: [${xMin}, ${xMax}]):
+          </div>
+          <div style="display:flex; flex-wrap:wrap; gap:6px; align-items:center;">
+            <input
+              type="number"
+              id="quick-xeval-input"
+              step="any"
+              value="${payload.x_eval}"
+              aria-label="Nuevo valor x* a evaluar"
+              style="flex:1; min-width:95px; padding:6px 9px; border:1px solid #86efac; border-radius:7px; font-size:0.88rem; font-weight:700; background:#ffffff; color:#0f172a;"
+            />
+            <button type="button" class="btn-secondary-sm quick-xeval-chip" data-x="${xLeft}">
+              x* = ${xLeft}
+            </button>
+            <button type="button" class="btn-secondary-sm quick-xeval-chip" data-x="${xRight}">
+              x* = ${xRight}
+            </button>
+            <button type="button" id="btn-quick-extrapolate" class="btn-primary-run" style="margin-left:0; padding:7px 12px; font-size:0.8rem;">
+              Extrapolar
+            </button>
+          </div>
+        </div>
+      `;
     }
     if (res.ecuacion_latex) {
       html += `<div class="res-math-row"><strong>Modelo ajustado:</strong> <span class="katex-render" data-tex="${res.ecuacion_latex}"></span></div>`;
@@ -1052,6 +1097,50 @@ class ModulesUIController {
     if (window.katex) {
       this.resultsContainer.querySelectorAll(".katex-render").forEach((el) => {
         window.katex.render(el.getAttribute("data-tex") || "", el, { throwOnError: false });
+      });
+    }
+
+    if (this.currentModule === "M5") {
+      const runQuickX = (rawVal) => {
+        const nextX = Number(String(rawVal ?? "").trim());
+        if (!Number.isFinite(nextX)) {
+          this._showFormError('Ingresa un valor numérico válido en "x*".');
+          return;
+        }
+        const xMin = Math.min(...payload.x_vals);
+        const xMax = Math.max(...payload.x_vals);
+        if (
+          (this.currentSubtema === "newton_adelante" || this.currentSubtema === "newton_atras") &&
+          (nextX < xMin || nextX > xMax)
+        ) {
+          this.currentSubtema = "lagrange";
+          this.paramsContainer.querySelectorAll(".subtema-pill").forEach((pill) => {
+            pill.classList.toggle("active", pill.getAttribute("data-subtema") === "lagrange");
+          });
+        }
+        const formXInput = document.getElementById("p-xeval");
+        if (formXInput) formXInput.value = nextX;
+        this.executeActiveMethod(true);
+      };
+
+      this.resultsContainer.querySelectorAll(".quick-xeval-chip").forEach((chip) => {
+        chip.addEventListener("click", () => {
+          const val = chip.getAttribute("data-x");
+          const inp = document.getElementById("quick-xeval-input");
+          if (inp) inp.value = val;
+          runQuickX(val);
+        });
+      });
+
+      document.getElementById("btn-quick-extrapolate")?.addEventListener("click", () => {
+        runQuickX(document.getElementById("quick-xeval-input")?.value);
+      });
+
+      document.getElementById("quick-xeval-input")?.addEventListener("keydown", (ev) => {
+        if (ev.key === "Enter") {
+          ev.preventDefault();
+          runQuickX(ev.target.value);
+        }
       });
     }
   }

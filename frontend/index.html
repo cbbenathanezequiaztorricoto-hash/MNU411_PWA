@@ -54,11 +54,12 @@
             </button>
           </div>
 
-          <!-- Área de entrada matemática natural (MathLive) -->
+          <!-- Área de entrada matemática natural (MathLive + Respaldo KaTeX móvil) -->
           <div class="lcd-math-area">
             <span id="lcd-prompt-label" class="lcd-prompt">Expr:</span>
             <math-field
               id="math-display"
+              class="hidden"
               virtual-keyboard-mode="off"
               inputmode="none"
               default-mode="math"
@@ -66,6 +67,11 @@
               smart-superscript="true"
               aria-label="Pantalla de expresión matemática"
             ></math-field>
+            <div
+              id="math-katex-fallback"
+              class="lcd-katex-fallback"
+              aria-label="Visor matemático sincronizado"
+            ></div>
           </div>
 
           <!-- Barra rápida de variables (se activa en M1 Propagación / Multivariable) -->

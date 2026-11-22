@@ -6,11 +6,15 @@
 class MathDisplayController {
   constructor() {
     this.mf = document.getElementById("math-display");
+    this.fallbackEl = document.getElementById("math-katex-fallback");
     this.promptEl = document.getElementById("lcd-prompt-label");
     this.msgEl = document.getElementById("lcd-message");
     this.resultEl = document.getElementById("lcd-result");
     this.ansBadgeEl = document.getElementById("ans-badge");
     this.varBarEl = document.getElementById("var-quick-bar");
+
+    this.latexBuffer = "";
+    this.mathliveReady = false;
 
     this.ansValue = this._loadAns();
     this.history = JSON.parse(localStorage.getItem("mnu411_history") || "[]");
@@ -37,7 +41,26 @@ class MathDisplayController {
   }
 
   _initMathField() {
+    this._renderFallback();
     if (!this.mf) return;
+
+    if (window.customElements && typeof window.customElements.whenDefined === "function") {
+      window.customElements.whenDefined("math-field").then(() => {
+        this._upgradeMathField();
+      });
+    } else if (window.MathfieldElement) {
+      this._upgradeMathField();
+    }
+  }
+
+  _upgradeMathField() {
+    if (!this.mf || this.mathliveReady) return;
+
+    if (window.MathfieldElement) {
+      window.MathfieldElement.fontsDirectory =
+        "https://cdn.jsdelivr.net/npm/mathlive@0.101.0/dist/fonts";
+      window.MathfieldElement.soundsDirectory = null;
+    }
 
     // Bloquear teclado virtual nativo del teléfono (solo teclado científico Casio)
     if (window.mathVirtualKeyboard) {
@@ -48,7 +71,10 @@ class MathDisplayController {
     this.mf.smartMode = false;
     this.mf.mode = "math";
 
-    // Evitar atajos de teclado crudos que muestren barras '\' al usuario
+    this.mf.addEventListener("input", () => {
+      this.latexBuffer = this.mf.getValue("latex") || "";
+    });
+
     this.mf.addEventListener("focus", () => {
       if (window.mathVirtualKeyboard) {
         window.mathVirtualKeyboard.hide();
@@ -71,24 +97,75 @@ class MathDisplayController {
         this.insertLatex("\\frac{#@}{#?}");
       }
     });
+
+    if (this.latexBuffer) {
+      this.mf.setValue(this.latexBuffer);
+    }
+
+    // Activar MathLive solo si el Shadow DOM montó correctamente
+    if (this.mf.shadowRoot) {
+      this.mathliveReady = true;
+      this.mf.classList.remove("hidden");
+      this.fallbackEl?.classList.add("hidden");
+    }
+  }
+
+  _renderFallback() {
+    if (this.mathliveReady || !this.fallbackEl) return;
+
+    if (!window.katex) {
+      setTimeout(() => this._renderFallback(), 60);
+      return;
+    }
+
+    const visualTex = (this.latexBuffer || "").replace(/#@|#\?/g, "\\square");
+    this.fallbackEl.innerHTML = "";
+    const mathSpan = document.createElement("span");
+    try {
+      window.katex.render(visualTex || "\\color{#5c6b57}{0}", mathSpan, {
+        throwOnError: false,
+        displayMode: false,
+      });
+    } catch (_) {
+      mathSpan.textContent = visualTex || "0";
+    }
+
+    const cursor = document.createElement("span");
+    cursor.className = "lcd-cursor";
+    this.fallbackEl.appendChild(mathSpan);
+    this.fallbackEl.appendChild(cursor);
   }
 
   /**
    * Inserta una plantilla LaTeX visual con cuadros editables (#@ / #?)
    */
   insertLatex(latexSnippet) {
-    if (!this.mf) return;
-    this.mf.focus({ preventScroll: true });
-    if (this.mf.mode !== "math") {
-      this.mf.mode = "math";
-    }
-
-    // Si el usuario pulsa potencia (x² o □^□) en una pantalla vacía, anteponer cuadro base
     const current = this.getLatex().trim();
-    if ((latexSnippet === "^{2}" || latexSnippet === "^{3}" || latexSnippet === "^{#?}") && current === "") {
-      this.mf.executeCommand(["insert", `{#?}${latexSnippet}`, { selectionMode: "placeholder" }]);
+    const isPower =
+      latexSnippet === "^{2}" || latexSnippet === "^{3}" || latexSnippet === "^{#?}";
+
+    if (this.mathliveReady && this.mf) {
+      this.mf.focus({ preventScroll: true });
+      if (this.mf.mode !== "math") {
+        this.mf.mode = "math";
+      }
+      if (isPower && current === "") {
+        this.mf.executeCommand(["insert", `{#?}${latexSnippet}`, { selectionMode: "placeholder" }]);
+      } else {
+        this.mf.executeCommand(["insert", latexSnippet, { selectionMode: "placeholder" }]);
+      }
+      this.latexBuffer = this.mf.getValue("latex") || "";
     } else {
-      this.mf.executeCommand(["insert", latexSnippet, { selectionMode: "placeholder" }]);
+      const normalized = latexSnippet.replace(/#@/g, "#?");
+      const prefix = isPower && this.latexBuffer === "" ? "{#?}" : "";
+      const token = `${prefix}${normalized}`;
+
+      if (this.latexBuffer.includes("#?") && !token.includes("#?")) {
+        this.latexBuffer = this.latexBuffer.replace("#?", token);
+      } else {
+        this.latexBuffer += token;
+      }
+      this._renderFallback();
     }
 
     this.setMessage("Editando expresión...");
@@ -98,37 +175,50 @@ class MathDisplayController {
    * Navegación con la cruceta REPLAY (◄ ▲ ▼ ►) por nodos y cuadros editables
    */
   navigate(direction) {
-    if (!this.mf) return;
-    this.mf.focus({ preventScroll: true });
+    if (this.mathliveReady && this.mf) {
+      this.mf.focus({ preventScroll: true });
 
-    const commandMap = {
-      left: "moveToPreviousChar",
-      right: "moveToNextChar",
-      up: "moveUp",
-      down: "moveDown",
-    };
+      const commandMap = {
+        left: "moveToPreviousChar",
+        right: "moveToNextChar",
+        up: "moveUp",
+        down: "moveDown",
+      };
 
-    const beforePos = this.mf.position;
-    const cmd = commandMap[direction];
-    if (cmd) {
-      this.mf.executeCommand(cmd);
+      const beforePos = this.mf.position;
+      const cmd = commandMap[direction];
+      if (cmd) {
+        this.mf.executeCommand(cmd);
+      }
+
+      if (
+        (direction === "up" || direction === "down") &&
+        this.mf.position === beforePos &&
+        this.history.length > 0
+      ) {
+        this._stepHistory(direction);
+      }
+      return;
     }
 
-    // Si ▲ o ▼ no movieron el cursor dentro de una fracción/potencia, recorrer historial
-    if ((direction === "up" || direction === "down") && this.mf.position === beforePos && this.history.length > 0) {
-      if (direction === "up" && this.historyIndex > 0) {
-        this.historyIndex -= 1;
-      } else if (direction === "down" && this.historyIndex < this.history.length - 1) {
-        this.historyIndex += 1;
-      } else {
-        return;
-      }
-      const item = this.history[this.historyIndex];
-      if (item) {
-        this.setLatex(item.latex);
-        this.setResult(item.result, false);
-        this.setMessage(`Historial (${this.historyIndex + 1}/${this.history.length})`);
-      }
+    if ((direction === "up" || direction === "down") && this.history.length > 0) {
+      this._stepHistory(direction);
+    }
+  }
+
+  _stepHistory(direction) {
+    if (direction === "up" && this.historyIndex > 0) {
+      this.historyIndex -= 1;
+    } else if (direction === "down" && this.historyIndex < this.history.length - 1) {
+      this.historyIndex += 1;
+    } else {
+      return;
+    }
+    const item = this.history[this.historyIndex];
+    if (item) {
+      this.setLatex(item.latex);
+      this.setResult(item.result, false);
+      this.setMessage(`Historial (${this.historyIndex + 1}/${this.history.length})`);
     }
   }
 
@@ -144,30 +234,47 @@ class MathDisplayController {
    * Borra el nodo o carácter anterior (DEL)
    */
   deleteBackward() {
-    if (!this.mf) return;
-    this.mf.focus({ preventScroll: true });
-    this.mf.executeCommand("deleteBackward");
+    if (this.mathliveReady && this.mf) {
+      this.mf.focus({ preventScroll: true });
+      this.mf.executeCommand("deleteBackward");
+      this.latexBuffer = this.mf.getValue("latex") || "";
+      return;
+    }
+
+    this.latexBuffer = this.latexBuffer
+      .replace(/(\\[a-zA-Z]+(?:\{[^}]*\})*|#[\?@]|.)$/, "");
+    this._renderFallback();
   }
 
   /**
    * Limpia toda la pantalla (AC)
    */
   clearAll() {
-    if (!this.mf) return;
-    this.mf.setValue("");
-    this.mf.focus({ preventScroll: true });
+    this.latexBuffer = "";
+    if (this.mathliveReady && this.mf) {
+      this.mf.setValue("");
+      this.mf.focus({ preventScroll: true });
+    } else {
+      this._renderFallback();
+    }
     this.setResult("0", false);
     this.setMessage("Pantalla limpia");
   }
 
   getLatex() {
-    if (!this.mf) return "";
-    return this.mf.getValue("latex") || "";
+    if (this.mathliveReady && this.mf) {
+      return this.mf.getValue("latex") || "";
+    }
+    return this.latexBuffer.replace(/#@|#\?/g, "\\placeholder{}");
   }
 
   setLatex(latexStr) {
-    if (!this.mf) return;
-    this.mf.setValue(latexStr || "");
+    this.latexBuffer = latexStr || "";
+    if (this.mathliveReady && this.mf) {
+      this.mf.setValue(this.latexBuffer);
+    } else {
+      this._renderFallback();
+    }
   }
 
   setPrompt(label) {

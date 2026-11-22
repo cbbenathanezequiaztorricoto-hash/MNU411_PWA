@@ -6408,11 +6408,12 @@ class PDFExportRequest(BaseModel):
             </button>
           </div>
 
-          <!-- Área de entrada matemática natural (MathLive) -->
+          <!-- Área de entrada matemática natural (MathLive + Respaldo KaTeX móvil) -->
           <div class="lcd-math-area">
             <span id="lcd-prompt-label" class="lcd-prompt">Expr:</span>
             <math-field
               id="math-display"
+              class="hidden"
               virtual-keyboard-mode="off"
               inputmode="none"
               default-mode="math"
@@ -6420,6 +6421,11 @@ class PDFExportRequest(BaseModel):
               smart-superscript="true"
               aria-label="Pantalla de expresión matemática"
             ></math-field>
+            <div
+              id="math-katex-fallback"
+              class="lcd-katex-fallback"
+              aria-label="Visor matemático sincronizado"
+            ></div>
           </div>
 
           <!-- Barra rápida de variables (se activa en M1 Propagación / Multivariable) -->
@@ -7168,6 +7174,37 @@ math-field#math-display {
 math-field#math-display::part(virtual-keyboard-toggle),
 math-field#math-display::part(menu-toggle) {
   display: none !important;
+}
+
+math-field#math-display.hidden,
+.lcd-katex-fallback.hidden {
+  display: none !important;
+}
+
+.lcd-katex-fallback {
+  flex: 1;
+  width: 100%;
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  font-size: 1.3rem;
+  color: var(--lcd-ink);
+  overflow-x: auto;
+  white-space: nowrap;
+  padding: 2px 0;
+}
+
+.lcd-cursor {
+  display: inline-block;
+  width: 2px;
+  height: 1.2em;
+  background-color: var(--lcd-ink);
+  margin-left: 2px;
+  animation: lcd-blink 1s step-end infinite;
+}
+
+@keyframes lcd-blink {
+  50% { opacity: 0; }
 }
 
 /* Barra contextual de variables rápidas (M1 Propagación) */

@@ -1,5 +1,6 @@
 import math
 import numpy as np
+import sympy as sp
 
 
 class InterpolacionEngine:
@@ -237,16 +238,43 @@ class InterpolacionEngine:
                 }
             )
 
+        # Construcción simbólica del polinomio de Lagrange y su forma expandida
+        x_sym = sp.Symbol("x")
+        poli_lagrange_expr = sp.Integer(0)
+        for i in range(n):
+            li_sym = sp.Integer(1)
+            for j in range(n):
+                if i != j:
+                    li_sym *= (x_sym - sp.Float(float(x[j]), 10)) / sp.Float(
+                        float(x[i] - x[j]), 10
+                    )
+            poli_lagrange_expr += sp.Float(float(y[i]), 10) * li_sym
+
+        poli_expandido_raw = sp.expand(poli_lagrange_expr)
+        poly_obj = sp.Poly(poli_expandido_raw, x_sym)
+        poli_expandido_expr = sum(
+            sp.Float(round(float(coef), 8), 8) * (x_sym ** deg)
+            for (deg,), coef in poly_obj.terms()
+            if abs(float(coef)) > 1e-12
+        )
+        if poli_expandido_expr == 0:
+            poli_expandido_expr = sp.Float(0.0, 4)
+
+        x_min, x_max = float(np.min(x)), float(np.max(x))
+
         return {
             "metodo": "Polinomio de Aproximación de Lagrange",
             "solucion": round(resultado, 6),
             "x": xp,
+            "x_eval": xp,
+            "rango_x": [x_min, x_max],
+            "es_extrapolacion": es_extrapolacion,
             "tipo_evaluacion": "Extrapolación" if es_extrapolacion else "Interpolación",
+            "polinomio_latex": sp.latex(poli_lagrange_expr),
+            "polinomio_expandido_latex": sp.latex(poli_expandido_expr),
+            "polinomio_geogebra": str(poli_expandido_expr).replace("**", "^"),
             "iteraciones": desglose,
         }
-import numpy as np
-import sympy as sp
-
 
 def _validar_puntos_interpolacion(x_vals, y_vals, min_puntos: int = 2):
     """
