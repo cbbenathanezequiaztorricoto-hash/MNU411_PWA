@@ -1,6 +1,6 @@
 /**
- * MNU411 v2.0 — Controlador de Subtemas, Cuadrículas Táctiles y Resultados (M1–M6)
- * Alineado exactamente con api/schemas.py y api/main.py
+ * MNU411 v2.0 — Controlador de Subtemas, Validación de Entradas y Resultados (M1–M6)
+ * Alineado con api/schemas.py y api/main.py
  */
 class ModulesUIController {
   constructor() {
@@ -87,12 +87,78 @@ class ModulesUIController {
         this.pdfBtn.textContent = "...";
         await window.MNU411.api.downloadPdfReport(this.lastPdfPayload);
       } catch (err) {
-        window.MNU411.display?.setMessage(err.message, true);
+        this._showFormError(err.message);
       } finally {
         this.pdfBtn.disabled = false;
         this.pdfBtn.textContent = "PDF";
       }
     });
+  }
+
+  _showFormError(message) {
+    window.MNU411.display?.setMessage(message, true);
+    const banner = document.getElementById("module-error-banner");
+    if (banner) {
+      banner.textContent = `⚠️ ${message}`;
+      banner.style.display = "block";
+    }
+    // En móvil, si el panel estaba cerrado al pulsar '=' desde la calculadora, abrirlo para ver el aviso
+    if (window.innerWidth < 768 && this.currentModule !== "M0") {
+      document.getElementById("workstation-panel")?.classList.add("mobile-open");
+      window.MNU411.keypad?.switchWorkstationTab("params");
+    }
+  }
+
+  _clearFormError() {
+    const banner = document.getElementById("module-error-banner");
+    if (banner) {
+      banner.textContent = "";
+      banner.style.display = "none";
+    }
+  }
+
+  /**
+   * Lee y valida estrictamente un campo numérico del formulario.
+   * Evita que celdas vacías se conviertan silenciosamente en 0 o NaN.
+   */
+  _readNumber(id, label, { required = true, min = null, max = null, positive = false, integer = false } = {}) {
+    const el = document.getElementById(id);
+    if (!el) return null;
+    const raw = String(el.value ?? "").trim();
+
+    if (raw === "") {
+      if (!required) return null;
+      throw new Error(`Falta ingresar el valor en "${label}".`);
+    }
+
+    const num = Number(raw);
+    if (!Number.isFinite(num)) {
+      throw new Error(`El campo "${label}" debe contener un número válido.`);
+    }
+    if (integer && !Number.isInteger(num)) {
+      throw new Error(`El campo "${label}" debe ser un número entero.`);
+    }
+    if (positive && num <= 0) {
+      throw new Error(`El campo "${label}" debe ser mayor que cero (> 0).`);
+    }
+    if (min !== null && num < min) {
+      throw new Error(`El campo "${label}" debe ser mayor o igual a ${min}.`);
+    }
+    if (max !== null && num > max) {
+      throw new Error(`El campo "${label}" debe ser menor o igual a ${max}.`);
+    }
+    return num;
+  }
+
+  _readRequiredLatex(contextDesc) {
+    const latex = window.MNU411.display?.getLatex().trim() || "";
+    if (!latex) {
+      throw new Error(`Escribe primero ${contextDesc} en la pantalla verde de la calculadora.`);
+    }
+    if (latex.includes("\\placeholder") || latex.includes("\\square")) {
+      throw new Error("Hay un cuadro vacío (□) en la pantalla verde. Rellénalo o bórralo con DEL.");
+    }
+    return latex;
   }
 
   renderModule(moduleCode) {
@@ -140,6 +206,11 @@ class ModulesUIController {
         <div class="subtema-bar">${pillsHtml}</div>
       </div>
       <div id="dynamic-form-fields" class="dynamic-form-fields"></div>
+      <div
+        id="module-error-banner"
+        role="alert"
+        style="display:none; margin-top:12px; padding:10px 12px; border-radius:8px; background:#fef2f2; border:1px solid #fca5a5; color:#991b1b; font-size:0.82rem; font-weight:700; line-height:1.4;"
+      ></div>
       <div class="form-footer-actions">
         <button type="button" id="btn-load-example" class="btn-secondary-sm">Cargar ejemplo</button>
         <button type="button" id="btn-run-method" class="btn-primary-run">Calcular Método ( = )</button>
@@ -154,6 +225,7 @@ class ModulesUIController {
     });
 
     document.getElementById("btn-load-example")?.addEventListener("click", () => {
+      this._clearFormError();
       this._loadPresetExample();
     });
 
@@ -208,7 +280,7 @@ class ModulesUIController {
       } else if (sub === "taylor") {
         window.MNU411.display?.setPrompt("f(x):");
         formEl.innerHTML = `
-          <p class="helper-hint">Escribe <strong>f(x)</strong> en la pantalla LCD izquierda (ej. eˣ o sin(x)) y define los parámetros:</p>
+          <p class="helper-hint">Escribe <strong>f(x)</strong> en la pantalla LCD verde (o pulsa <em>Cargar ejemplo</em>) y define los parámetros:</p>
           <div class="params-grid-3">
             ${this._numInputHtml("p-x0", "Punto expansión (x₀)", "0")}
             ${this._numInputHtml("p-xeval", "Evaluar en (x)", "0.5")}
@@ -224,10 +296,10 @@ class ModulesUIController {
             ${this._numInputHtml("p-dx1", "Error Δx₁", "0.01")}
             ${this._numInputHtml("p-x2", "Valor x₂", "3.0")}
             ${this._numInputHtml("p-dx2", "Error Δx₂", "0.01")}
-            ${this._numInputHtml("p-x3", "Valor x₃ (si se usa)", "1.0")}
-            ${this._numInputHtml("p-dx3", "Error Δx₃ (si se usa)", "0.01")}
-            ${this._numInputHtml("p-x4", "Valor x₄ (si se usa)", "1.0")}
-            ${this._numInputHtml("p-dx4", "Error Δx₄ (si se usa)", "0.01")}
+            ${this._numInputHtml("p-x3", "Valor x₃ (opcional)", "1.0")}
+            ${this._numInputHtml("p-dx3", "Error Δx₃ (opcional)", "0.01")}
+            ${this._numInputHtml("p-x4", "Valor x₄ (opcional)", "1.0")}
+            ${this._numInputHtml("p-dx4", "Error Δx₄ (opcional)", "0.01")}
           </div>
         `;
       }
@@ -243,7 +315,7 @@ class ModulesUIController {
 
       if (sub === "biseccion" || sub === "regula_falsi") {
         formEl.innerHTML = `
-          <p class="helper-hint">Escribe <strong>f(x)</strong> en la calculadora izquierda e indica el intervalo <strong>[a, b]</strong>:</p>
+          <p class="helper-hint">Escribe <strong>f(x)</strong> en la pantalla verde (o pulsa <em>Cargar ejemplo</em>) e indica el intervalo <strong>[a, b]</strong>:</p>
           <div class="params-grid-2">
             ${this._numInputHtml("p-a", "Extremo inferior (a)", "1")}
             ${this._numInputHtml("p-b", "Extremo superior (b)", "2")}
@@ -256,7 +328,7 @@ class ModulesUIController {
             ? "g(x) tal que x = g(x)"
             : "f(x) (las derivadas se calculan simbólicamente)";
         formEl.innerHTML = `
-          <p class="helper-hint">Escribe <strong>${fnLabel}</strong> en la calculadora izquierda:</p>
+          <p class="helper-hint">Escribe <strong>${fnLabel}</strong> en la pantalla verde (o pulsa <em>Cargar ejemplo</em>):</p>
           <div class="params-grid-3">
             ${this._numInputHtml("p-x0", "Valor inicial (x₀)", "1.5")}
             ${commonStop}
@@ -264,7 +336,7 @@ class ModulesUIController {
         `;
       } else if (sub === "secante") {
         formEl.innerHTML = `
-          <p class="helper-hint">Escribe <strong>f(x)</strong> en la calculadora izquierda y dos puntos iniciales:</p>
+          <p class="helper-hint">Escribe <strong>f(x)</strong> en la pantalla verde y dos puntos iniciales:</p>
           <div class="params-grid-2">
             ${this._numInputHtml("p-x0", "Primer punto (x₀)", "1")}
             ${this._numInputHtml("p-x1", "Segundo punto (x₁)", "2")}
@@ -307,6 +379,7 @@ class ModulesUIController {
 
       this._renderMatrixGrid(3, isIterative);
       document.getElementById("p-dim-n")?.addEventListener("change", (e) => {
+        this._clearFormError();
         this._renderMatrixGrid(Number(e.target.value), isIterative);
       });
     }
@@ -414,9 +487,10 @@ class ModulesUIController {
       btn.addEventListener("click", () => {
         const ans = window.MNU411.display?.getAns();
         if (ans === null || ans === undefined) {
-          window.MNU411.display?.setMessage("Memoria Ans vacía", true);
+          this._showFormError("La memoria Ans está vacía. Calcula un valor primero.");
           return;
         }
+        this._clearFormError();
         const input = document.getElementById(btn.getAttribute("data-target"));
         if (input) input.value = ans;
       });
@@ -543,147 +617,265 @@ class ModulesUIController {
     window.MNU411.display?.setMessage("Ejemplo cargado. Presiona =");
   }
 
+  _readPointsValidated(minPoints = 2) {
+    const xInputs = Array.from(document.querySelectorAll(".pt-x"));
+    const yInputs = Array.from(document.querySelectorAll(".pt-y"));
+
+    if (xInputs.length < minPoints) {
+      throw new Error(`Se requieren al menos ${minPoints} filas de datos en la tabla.`);
+    }
+
+    const x_vals = [];
+    const y_vals = [];
+
+    for (let i = 0; i < xInputs.length; i++) {
+      const rx = String(xInputs[i].value ?? "").trim();
+      const ry = String(yInputs[i].value ?? "").trim();
+      if (rx === "" || ry === "") {
+        throw new Error(`Fila ${i + 1} de la tabla tiene una celda vacía.`);
+      }
+      const nx = Number(rx);
+      const ny = Number(ry);
+      if (!Number.isFinite(nx) || !Number.isFinite(ny)) {
+        throw new Error(`Fila ${i + 1} contiene un valor no numérico.`);
+      }
+      x_vals.push(nx);
+      y_vals.push(ny);
+    }
+
+    return { x_vals, y_vals };
+  }
+
   /**
-   * Construye el JSON exacto que espera cada Pydantic Schema en api/schemas.py
+   * Valida entradas en el navegador y construye el JSON exacto para api/schemas.py
    */
   _collectPayload() {
     const mod = this.currentModule;
     const sub = this.currentSubtema;
-    const latex = window.MNU411.display?.getLatex().trim() || "";
 
     if (mod === "M1") {
       if (["absoluto", "relativo", "porcentual"].includes(sub)) {
-        return {
-          tipo: sub,
-          x: Number(document.getElementById("p-x")?.value),
-          x_bar: Number(document.getElementById("p-x-bar")?.value),
-        };
+        const x = this._readNumber("p-x", "Valor Real (x)");
+        const x_bar = this._readNumber("p-x-bar", "Valor Aproximado (x̄)");
+        if ((sub === "relativo" || sub === "porcentual") && x === 0) {
+          throw new Error("El Valor Real (x) no puede ser 0 para calcular error relativo o porcentual.");
+        }
+        return { tipo: sub, x, x_bar };
       }
+
       if (sub === "redondeo") {
-        return {
-          tipo: "redondeo",
-          d: Number(document.getElementById("p-d")?.value || 4),
-          x: Number(document.getElementById("p-x")?.value),
-          x_bar: Number(document.getElementById("p-x-bar")?.value),
-        };
+        const d = this._readNumber("p-d", "Cifras significativas (d)", { min: 1, max: 15, integer: true });
+        const x = this._readNumber("p-x", "Valor Real (x)", { required: false });
+        const x_bar = this._readNumber("p-x-bar", "Valor Aproximado (x̄)", { required: false });
+        if ((x === null) !== (x_bar === null)) {
+          throw new Error("Para verificar redondeo ingresa tanto x como x̄, o deja ambos vacíos para ver solo la cota.");
+        }
+        return { tipo: "redondeo", d, x, x_bar };
       }
+
       if (sub === "taylor") {
-        return {
-          tipo: "taylor",
-          func_latex: latex,
-          x0: Number(document.getElementById("p-x0")?.value || 0),
-          x_eval: Number(document.getElementById("p-xeval")?.value || 0.5),
-          orden: Number(document.getElementById("p-orden")?.value || 3),
-        };
+        const func_latex = this._readRequiredLatex("la función f(x)");
+        const x0 = this._readNumber("p-x0", "Punto de expansión (x₀)");
+        const x_eval = this._readNumber("p-xeval", "Valor a evaluar (x)");
+        const orden = this._readNumber("p-orden", "Orden / Grado (d)", { min: 1, max: 20, integer: true });
+        return { tipo: "taylor", func_latex, x0, x_eval, orden };
       }
+
       if (sub === "propagacion") {
-        // latex_parser.py convierte x_{1} -> x1, x_{2} -> x2, etc.
-        return {
-          tipo: "propagacion",
-          func_latex: latex,
-          valores: {
-            x1: Number(document.getElementById("p-x1")?.value || 0),
-            x2: Number(document.getElementById("p-x2")?.value || 0),
-            x3: Number(document.getElementById("p-x3")?.value || 0),
-            x4: Number(document.getElementById("p-x4")?.value || 0),
-          },
-          errores: {
-            x1: Number(document.getElementById("p-dx1")?.value || 0),
-            x2: Number(document.getElementById("p-dx2")?.value || 0),
-            x3: Number(document.getElementById("p-dx3")?.value || 0),
-            x4: Number(document.getElementById("p-dx4")?.value || 0),
-          },
-        };
+        const func_latex = this._readRequiredLatex("la función multivariable f(x₁, x₂, ...)");
+        const valores = {};
+        const errores = {};
+        for (let idx = 1; idx <= 4; idx++) {
+          const v = this._readNumber(`p-x${idx}`, `Valor x${idx}`, { required: false });
+          const dv = this._readNumber(`p-dx${idx}`, `Error Δx${idx}`, { required: false, min: 0 });
+          if (v !== null) valores[`x${idx}`] = v;
+          if (dv !== null) errores[`x${idx}`] = dv;
+        }
+        return { tipo: "propagacion", func_latex, valores, errores };
       }
     }
 
     if (mod === "M2") {
-      return {
-        metodo: sub,
-        func_latex: latex,
-        a: Number(document.getElementById("p-a")?.value),
-        b: Number(document.getElementById("p-b")?.value),
-        x0: Number(document.getElementById("p-x0")?.value),
-        x1: Number(document.getElementById("p-x1")?.value),
-        tol: Number(document.getElementById("p-tol")?.value || 0.0001),
-        max_iter: Number(document.getElementById("p-iter")?.value || 30),
-      };
+      const func_latex = this._readRequiredLatex(
+        sub === "punto_fijo" ? "la función g(x)" : "la función f(x)"
+      );
+      const tol = this._readNumber("p-tol", "Tolerancia (E)", { positive: true });
+      const max_iter = this._readNumber("p-iter", "Iteraciones máx.", { min: 1, max: 500, integer: true });
+
+      if (sub === "biseccion" || sub === "regula_falsi") {
+        const a = this._readNumber("p-a", "Extremo inferior (a)");
+        const b = this._readNumber("p-b", "Extremo superior (b)");
+        if (a === b) {
+          throw new Error("Los extremos a y b deben ser números distintos.");
+        }
+        return { metodo: sub, func_latex, a, b, tol, max_iter };
+      }
+
+      if (sub === "secante") {
+        const x0 = this._readNumber("p-x0", "Primer punto (x₀)");
+        const x1 = this._readNumber("p-x1", "Segundo punto (x₁)");
+        if (x0 === x1) {
+          throw new Error("Los dos puntos iniciales x₀ y x₁ deben ser distintos.");
+        }
+        return { metodo: sub, func_latex, x0, x1, tol, max_iter };
+      }
+
+      const x0 = this._readNumber("p-x0", "Valor inicial (x₀)");
+      return { metodo: sub, func_latex, x0, tol, max_iter };
     }
 
     if (mod === "M3") {
-      const n = Number(document.getElementById("p-dim-n")?.value || 3);
+      const n = this._readNumber("p-dim-n", "Dimensión n", { min: 2, max: 6, integer: true });
       const A = Array.from({ length: n }, () => Array(n).fill(0));
       const b = Array(n).fill(0);
       const x0 = Array(n).fill(0);
 
       document.querySelectorAll(".mat-a").forEach((inp) => {
-        A[Number(inp.dataset.r)][Number(inp.dataset.c)] = Number(inp.value);
+        const r = Number(inp.dataset.r);
+        const c = Number(inp.dataset.c);
+        const raw = String(inp.value ?? "").trim();
+        if (raw === "" || !Number.isFinite(Number(raw))) {
+          throw new Error(`Falta o es inválido el coeficiente en Fila ${r + 1}, Columna x${c + 1}.`);
+        }
+        A[r][c] = Number(raw);
       });
+
       document.querySelectorAll(".vec-b").forEach((inp) => {
-        b[Number(inp.dataset.r)] = Number(inp.value);
+        const r = Number(inp.dataset.r);
+        const raw = String(inp.value ?? "").trim();
+        if (raw === "" || !Number.isFinite(Number(raw))) {
+          throw new Error(`Falta o es inválido el término independiente b en Fila ${r + 1}.`);
+        }
+        b[r] = Number(raw);
       });
-      document.querySelectorAll(".vec-x0").forEach((inp) => {
-        x0[Number(inp.dataset.r)] = Number(inp.value);
-      });
+
+      const isIterative = sub === "jacobi" || sub === "gauss_seidel";
+      if (isIterative) {
+        document.querySelectorAll(".vec-x0").forEach((inp) => {
+          const r = Number(inp.dataset.r);
+          const raw = String(inp.value ?? "").trim();
+          if (raw === "" || !Number.isFinite(Number(raw))) {
+            throw new Error(`Falta o es inválido el valor inicial x⁽⁰⁾ en Fila ${r + 1}.`);
+          }
+          x0[r] = Number(raw);
+        });
+      }
+
+      const tol = isIterative ? this._readNumber("p-tol", "Tolerancia (E)", { positive: true }) : 1e-4;
+      const max_iter = isIterative
+        ? this._readNumber("p-iter", "Iteraciones máx.", { min: 1, max: 500, integer: true })
+        : 30;
 
       return {
         metodo: sub,
         A,
         b,
-        x0,
-        tol: Number(document.getElementById("p-tol")?.value || 1e-4),
-        max_iter: Number(document.getElementById("p-iter")?.value || 30),
+        x0: isIterative ? x0 : null,
+        tol,
+        max_iter,
         tipo_error: document.getElementById("p-tipo-err")?.value || "residuo",
       };
     }
 
     if (mod === "M5") {
-      const x_vals = Array.from(document.querySelectorAll(".pt-x")).map((i) => Number(i.value));
-      const y_vals = Array.from(document.querySelectorAll(".pt-y")).map((i) => Number(i.value));
-      return {
-        metodo: sub,
-        x_vals,
-        y_vals,
-        x_eval: Number(document.getElementById("p-xeval")?.value),
-      };
+      const { x_vals, y_vals } = this._readPointsValidated(2);
+      if (new Set(x_vals).size !== x_vals.length) {
+        throw new Error("Los valores de xᵢ no pueden repetirse en interpolación.");
+      }
+      const x_eval = this._readNumber("p-xeval", "Valor x* a interpolar");
+      return { metodo: sub, x_vals, y_vals, x_eval };
     }
 
     if (mod === "M6") {
-      const x_vals = Array.from(document.querySelectorAll(".pt-x")).map((i) => Number(i.value));
-      const y_vals = Array.from(document.querySelectorAll(".pt-y")).map((i) => Number(i.value));
-      const pesosRaw = document.getElementById("p-pesos")?.value || "0.2, 0.3, 0.5";
-      const pesos = pesosRaw
-        .split(",")
-        .map((s) => Number(s.trim()))
-        .filter((n) => Number.isFinite(n));
+      const minPts = sub === "series_tiempo" ? 3 : 2;
+      const { x_vals, y_vals } = this._readPointsValidated(minPts);
 
-      return {
-        metodo: sub,
-        x_vals,
-        y_vals,
-        x_eval: Number(document.getElementById("p-xeval")?.value || 7),
-        grado: Number(document.getElementById("p-grado")?.value || 2),
-        submetodo_ts: document.getElementById("p-ts-sub")?.value || "SES",
-        ventana_k: Number(document.getElementById("p-ventana-k")?.value || 3),
-        pesos: pesos.length >= 2 ? pesos : [0.2, 0.3, 0.5],
-        alpha: Number(document.getElementById("p-alpha")?.value || 0.35),
-        beta: Number(document.getElementById("p-beta")?.value || 0.15),
-        horizonte_h: Number(document.getElementById("p-horizonte")?.value || 3),
-        periodo_estacional: Number(document.getElementById("p-periodo-l")?.value || 4),
-      };
+      if (sub === "series_tiempo") {
+        const submetodo_ts = document.getElementById("p-ts-sub")?.value || "SES";
+        const horizonte_h = this._readNumber("p-horizonte", "Horizonte futuro (h)", {
+          min: 1,
+          max: 48,
+          integer: true,
+        });
+        const alpha = this._readNumber("p-alpha", "Nivel α", { positive: true, max: 1 });
+        const beta = this._readNumber("p-beta", "Tendencia β", { min: 0, max: 1 });
+        const ventana_k = this._readNumber("p-ventana-k", "Ventana k (PMS)", {
+          min: 1,
+          max: 30,
+          integer: true,
+        });
+        const periodo_estacional = this._readNumber("p-periodo-l", "Ciclo L", {
+          min: 2,
+          max: 24,
+          integer: true,
+        });
+
+        const pesosRaw = (document.getElementById("p-pesos")?.value || "").trim();
+        const pesos = pesosRaw
+          .split(",")
+          .map((s) => s.trim())
+          .filter((s) => s !== "")
+          .map(Number);
+
+        if (submetodo_ts === "PMP" && (pesos.length < 2 || pesos.some((p) => !Number.isFinite(p) || p < 0))) {
+          throw new Error("En PMP ingresa al menos 2 pesos numéricos no negativos separados por coma.");
+        }
+
+        return {
+          metodo: "series_tiempo",
+          x_vals,
+          y_vals,
+          x_eval: 0,
+          submetodo_ts,
+          ventana_k,
+          pesos: pesos.length >= 2 ? pesos : [0.2, 0.3, 0.5],
+          alpha,
+          beta,
+          horizonte_h,
+          periodo_estacional,
+        };
+      }
+
+      const x_eval = this._readNumber("p-xeval", "Valor a proyectar (x_eval)");
+      const grado =
+        sub === "polinomial" || sub === "comparar"
+          ? this._readNumber("p-grado", "Grado polinomio (m)", { min: 1, max: 10, integer: true })
+          : 2;
+
+      if (sub === "polinomial" && x_vals.length < grado + 1) {
+        throw new Error(`Para grado ${grado} se necesitan al menos ${grado + 1} puntos.`);
+      }
+      if (sub === "exponencial" && y_vals.some((y) => y <= 0)) {
+        throw new Error("El modelo exponencial requiere que todos los valores yᵢ sean mayores que 0.");
+      }
+      if (sub === "potencial" && (x_vals.some((x) => x <= 0) || y_vals.some((y) => y <= 0) || x_eval <= 0)) {
+        throw new Error("El modelo potencial requiere xᵢ > 0, yᵢ > 0 y x_eval > 0.");
+      }
+      if (sub === "logaritmica" && (x_vals.some((x) => x <= 0) || x_eval <= 0)) {
+        throw new Error("El modelo logarítmico requiere xᵢ > 0 y x_eval > 0.");
+      }
+
+      return { metodo: sub, x_vals, y_vals, x_eval, grado };
     }
 
     return {};
   }
 
   async executeActiveMethod() {
-    const payload = this._collectPayload();
+    this._clearFormError();
+    let payload;
+    try {
+      payload = this._collectPayload();
+    } catch (validationErr) {
+      this._showFormError(validationErr.message);
+      return;
+    }
+
     window.MNU411.display?.setMessage("Procesando método...");
 
     try {
       const res = await window.MNU411.api.solveModule(this.currentModule, payload);
 
-      // Extraer el valor principal para pantalla LCD y Ans
       const mainVal =
         res.raiz ??
         res.resultado ??
@@ -698,7 +890,6 @@ class ModulesUIController {
       window.MNU411.display?.setResult(mainVal, typeof mainVal === "number");
       window.MNU411.display?.setMessage("Cálculo completado");
 
-      // Renderizar procedimiento y tablas
       this._renderResultsView(payload, res);
       window.MNU411.display?.saveHistory(
         window.MNU411.display?.getLatex() || `${this.currentModule} (${this.currentSubtema})`,
@@ -713,10 +904,8 @@ class ModulesUIController {
         window.MNU411.keypad?.openWorkstation("results", false);
       }
 
-      // Actualizar gráfica en GeoGebra
       window.MNU411.geogebra?.plotModuleResult(this.currentModule, this.currentSubtema, payload, res);
 
-      // Preparar payload exacto para /api/m4/pdf
       this.lastPdfPayload = {
         titulo_metodo: res.metodo || `${this.currentModule} - ${this.currentSubtema}`,
         entradas_dict: payload,
@@ -732,7 +921,7 @@ class ModulesUIController {
       };
       if (this.pdfBtn) this.pdfBtn.disabled = false;
     } catch (err) {
-      window.MNU411.display?.setMessage(err.message, true);
+      this._showFormError(err.message);
     }
   }
 
@@ -800,28 +989,23 @@ class ModulesUIController {
     });
     html += `</div>`;
 
-    // Tabla de iteraciones (M2, M3 iterativos, M5 Newton/Lagrange)
     if (Array.isArray(res.iteraciones) && res.iteraciones.length > 0) {
       html += this._buildGenericTableHtml("Tabla de Iteraciones / Desglose", res.iteraciones);
     }
 
-    // Tabla de términos polinomiales (M5 Newton Adelante / Atrás)
     if (Array.isArray(res.terminos) && res.terminos.length > 0) {
       html += this._buildGenericTableHtml("Aporte por Orden Polinomial", res.terminos);
     }
 
-    // Ranking comparativo (M6 comparar)
     if (Array.isArray(res.ranking) && res.ranking.length > 0) {
       const cleanRanking = res.ranking.map(({ detalle, ecuacion_latex, ...rest }) => rest);
       html += this._buildGenericTableHtml("Ranking de Modelos por R²", cleanRanking);
     }
 
-    // Tramos lineales (M5 lineal)
     if (Array.isArray(res.segmentos) && res.segmentos.length > 0) {
       html += this._buildGenericTableHtml("Ecuaciones por Tramo", res.segmentos);
     }
 
-    // Reducción matricial paso a paso (M3 Gauss / Gauss-Jordan)
     if (Array.isArray(res.pasos_matriz) && res.pasos_matriz.length > 0) {
       html += `<h3 class="res-subtitle">Reducción Matricial Paso a Paso</h3>`;
       res.pasos_matriz.forEach((pm) => {
@@ -842,7 +1026,6 @@ class ModulesUIController {
       });
     }
 
-    // Tabla de diferencias divididas (M5)
     if (Array.isArray(res.tabla_diferencias) && res.tabla_diferencias.length > 0) {
       const matRows = res.tabla_diferencias
         .map(
@@ -860,7 +1043,6 @@ class ModulesUIController {
       `;
     }
 
-    // Detalles derivadas parciales (M1 propagación)
     if (Array.isArray(res.detalles) && res.detalles.length > 0) {
       html += this._buildGenericTableHtml("Aporte por Derivada Parcial", res.detalles);
     }

@@ -1,5 +1,5 @@
 const CACHE_STATIC = "mnu411-static-v2";
-const CACHE_CDN = "mnu411-cdn-v1";
+const CACHE_CDN = "mnu411-cdn-v2";
 
 const APP_SHELL = [
   "/",
@@ -56,7 +56,7 @@ self.addEventListener("fetch", (event) => {
           new Response(
             JSON.stringify({
               detail:
-                "Sin conexión con el servidor Python. Verifica tu red para ejecutar cálculos."
+                "Sin conexión con el servidor Python. Verifica que uvicorn esté encendido."
             }),
             {
               status: 503,
@@ -68,8 +68,8 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // 2. Recursos CDN (KaTeX, MathLive y fuentes matemáticas) -> Cache-First
-  if (url.hostname.includes("jsdelivr.net")) {
+  // 2. Recursos CDN (KaTeX, MathLive, GeoGebra) -> Cache-First
+  if (url.hostname.includes("jsdelivr.net") || url.hostname.includes("geogebra.org")) {
     event.respondWith(
       caches.open(CACHE_CDN).then(async (cache) => {
         const cached = await cache.match(request);
@@ -86,28 +86,24 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // 3. Archivos locales de la calculadora (App Shell) -> Stale-While-Revalidate
+  // 3. Archivos locales de la calculadora -> Network-First (siempre toma tus últimos cambios)
   if (url.origin === self.location.origin) {
     event.respondWith(
       caches.open(CACHE_STATIC).then(async (cache) => {
-        const cached = await cache.match(request);
-        const networkPromise = fetch(request)
-          .then((fresh) => {
-            if (fresh && fresh.ok) {
-              cache.put(request, fresh.clone());
-            }
-            return fresh;
-          })
-          .catch(() => null);
-
-        if (cached) return cached;
-        const networkResp = await networkPromise;
-        if (networkResp) return networkResp;
-
-        if (request.mode === "navigate") {
-          return cache.match("/index.html");
+        try {
+          const fresh = await fetch(request);
+          if (fresh && fresh.ok) {
+            cache.put(request, fresh.clone());
+          }
+          return fresh;
+        } catch (_) {
+          const cached = await cache.match(request);
+          if (cached) return cached;
+          if (request.mode === "navigate") {
+            return cache.match("/index.html");
+          }
+          return new Response("Recurso no disponible offline", { status: 504 });
         }
-        return new Response("Recurso no disponible offline", { status: 504 });
       })
     );
   }

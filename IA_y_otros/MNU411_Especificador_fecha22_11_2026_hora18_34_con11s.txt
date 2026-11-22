@@ -1,103 +1,108 @@
 ===============================================================================
- ESPECIFICACIÓN Y CONTRATO DE DESARROLLO: CALCULADORA CIENTÍFICA MNU411 (v2.0)
+ ESPECIFICACIÓN Y CONTRATO DE DESARROLLO: CALCULADORA CIENTÍFICA MNU411 (v2.1)
 ===============================================================================
 Proyecto: Calculadora Científica PWA y Sistema Modular de Métodos Numéricos (MNU411)
 Metodología: Spec-Driven Development (Especificar -> Diseñar -> Dirigir -> Revisar)
 Referencia Bibliográfica Base: Nieves Hurtado, A. & Domínguez Sánchez, F. C.
-  "Métodos Numéricos Aplicados a la Ingeniería", 2.ª Edición, CECSA.
+  "Métodos Numéricos Aplicados a la Ingeniería", 2.ª Edición, CECSA (1995/2002).
 
 -------------------------------------------------------------------------------
-1. ALCANCE Y DECISIONES DE INGENIERÍA (PASO 1: ESPECIFICAR)
+1. STACK TECNOLÓGICO Y ENTORNO DE EJECUCIÓN VIGENTE
 -------------------------------------------------------------------------------
-Qué SÍ incluye esta versión (V2.0 - Calculadora Científica Universal):
-1. Disponibilidad 24/7 y Modo Offline (PWA): Instalable en pantalla de inicio en
-   Android/iOS/PC mediante Web App Manifest y Service Worker.
-2. Escritura Matemática Natural (Natural Display): El usuario nunca escribe sintaxis
-   de programación (`**`, `^`, `exp()`, `sqrt()`). Toda expresión se construye
-   visualmente en LaTeX con cajas editables (ej. e^[], []^[], fracciones, raíces)
-   mediante un teclado táctil dedicado, bloqueando el teclado QWERTY del teléfono.
-3. Ergonomía Adaptativa (Móvil vs. PC):
-   - En teléfono (< 768px): Chasis vertical de calculadora física de mano (Pantalla
-     arriba + Teclado táctil abajo, sin scroll para operar).
-   - En PC (>= 768px): Estación de trabajo dividida (Chasis de calculadora a la
-     izquierda + Panel de tablas, GeoGebra nativo sin iframe sandbox y PDF a la derecha).
-4. Reutilización Total del Motor Matemático: Los 6 módulos en `engine/` permanecen
-   como única fuente de verdad numérica y simbólica.
-
-Qué NO incluye esta versión (Restricciones de alcance):
-- No se reescriben los algoritmos numéricos en JavaScript; el cálculo pesado
-  reside en Python (`engine/`) expuesto vía API REST (FastAPI).
-- No incluye sistema de cuentas, login ni bases de datos en la nube (el historial
-  de operaciones y valores `Ans` se guardan localmente en `localStorage` / IndexedDB).
+- Lenguaje y Entorno Virtual: Python 3.14.8 gestionado con `uv` en `.venv` local.
+- Backend API REST: FastAPI (>=0.115.0) + Uvicorn[standard] (>=0.32.0) + Pydantic (>=2.9.0).
+- Motor Matemático y Simbólico:
+  * SymPy (>=1.13.0): Derivación simbólica (Newton 1er/2do orden, Taylor,
+    derivadas parciales en propagación de error) y traductor LaTeX -> SymPy
+    (`api/latex_parser.py`) sin uso de `eval()`.
+  * NumPy (>=1.26.0): Eliminación Gaussiana, Gauss-Jordan, Jacobi, Gauss-Seidel,
+    diferencias finitas/divididas y mínimos cuadrados.
+  * ReportLab (>=4.2.0): Generación de reportes académicos PDF (`engine/pdf_generator.py`).
+- Frontend PWA (`frontend/`):
+  * HTML5, CSS3 Grid/Flexbox responsivo (breakpoint móvil/escritorio en 768px)
+    y JavaScript Vanilla modular (sin frameworks pesados).
+  * MathLive 0.101.0: Pantalla LCD de escritura natural (`<math-field>`).
+  * KaTeX 0.16.11: Tipografía matemática en teclas, leyendas SHIFT/ALPHA y
+    fórmulas de resultados.
+  * GeoGebra Apps API (`deployggb.js`): Lienzo gráfico nativo sin `iframe srcdoc`.
+  * Service Worker (`frontend/sw.js`) + `manifest.json`: Soporte offline
+    (Cache-First para CDNs y Network-First para archivos locales).
+- Interfaz Legacy de Referencia: Streamlit (`app.py` + `ui/tab_*.py` + Pandas),
+  conservada como respaldo funcional mientras la PWA (`frontend/`) es la app principal.
 
 -------------------------------------------------------------------------------
-2. ARQUITECTURA MODULAR DEL PROYECTO (PASO 2: DISEÑAR)
+2. ARQUITECTURA MODULAR Y CONTRATO DE ENDPOINTS REST (PASO 2: DISEÑAR)
 -------------------------------------------------------------------------------
 MNU411_PWA/
-├── engine/                          # MOTOR MATEMÁTICO PURO (INTACTO)
+├── engine/                          # MOTOR MATEMÁTICO PURO (ÚNICA FUENTE DE VERDAD)
 │   ├── __init__.py
-│   ├── errores.py                   # Módulo 1: Análisis de Errores (Cap. 1)
-│   ├── no_lineales.py               # Módulo 2: Ecuaciones No Lineales (Cap. 2)
-│   ├── sistemas_lineales.py         # Módulo 3: Sistemas Lineales A·x = b (Cap. 3)
-│   ├── interpolacion.py             # Módulo 5: Interpolación Funcional (Cap. 5)
-│   ├── proyecciones.py              # Módulo 6: Regresión y Series de Tiempo (Cap. 6)
-│   └── pdf_generator.py             # Motor de reportes académicos PDF (ReportLab)
-├── api/                             # CAPA DE SERVICIO Y TRADUCCIÓN SIMBÓLICA
+│   ├── errores.py                   # M1: ErroresEngine (EA, ER, EP, Redondeo, Taylor, Propagación)
+│   ├── no_lineales.py               # M2: NoLinealesEngine (Punto Fijo, Bisección, Regula Falsi, Secante, Newton 1 y 2)
+│   ├── sistemas_lineales.py         # M3: SistemasLinealesEngine (Gauss, Gauss-Jordan, Jacobi, Gauss-Seidel)
+│   ├── interpolacion.py             # M5: InterpolacionEngine (5.1.A, 5.2.B, 5.3.C) + Dif. Divididas (5.4.C) + Lineal (5.5.D)
+│   ├── proyecciones.py              # M6: Regresión (6.1.A–6.5.E), Comparador R² y Series de Tiempo (6.6.F)
+│   └── pdf_generator.py             # M4: PDFReportEngine (ReportLab)
+├── api/                             # CAPA DE SERVICIO REST Y PARSEO SIMBÓLICO
 │   ├── __init__.py
-│   ├── latex_parser.py              # Traductor seguro LaTeX -> SymPy (sin eval inseguro)
-│   ├── schemas.py                   # Validación estricta de entradas (Pydantic)
-│   └── main.py                      # Servidor FastAPI (endpoints REST + archivos estáticos)
+│   ├── latex_parser.py              # Traductor LaTeX -> SymPy y evaluador escalar
+│   ├── schemas.py                   # Modelos Pydantic de entrada/salida
+│   └── main.py                      # Servidor FastAPI + montaje estático de frontend/
 ├── frontend/                        # INTERFAZ PWA CALCULADORA CIENTÍFICA
-│   ├── index.html                   # Chasis principal de la calculadora
-│   ├── manifest.json                # Configuración de instalación móvil (PWA)
-│   ├── sw.js                        # Service Worker (caché offline de interfaz y assets)
-│   ├── css/
-│   │   └── calculator.css           # Diseño Casio ClassWiz/fx-82MS + Responsive Grid
-│   ├── js/
-│   │   ├── display_math.js          # Control de pantalla MathLive (cajas LaTeX y REPLAY)
-│   │   ├── keypad.js                # Lógica de teclas, capas SHIFT / ALPHA y modo matrices/tablas
-│   │   ├── modules_ui.js            # Formularios compactos por módulo (M1 a M6)
-│   │   ├── geogebra_native.js       # Integración directa con deployggb.js (sin srcdoc)
-│   │   └── api_client.js            # Comunicación con FastAPI + caché local Ans/Historial
-└── requirements.txt                 # fastapi, uvicorn, sympy, numpy, reportlab, antlr4-python3-runtime
+│   ├── index.html                   # Chasis Casio fx-NUMÉRICA + Estación de trabajo
+│   ├── manifest.json                # Manifiesto PWA instalable
+│   ├── sw.js                        # Service Worker v2
+│   ├── css/calculator.css           # Estilos LCD, teclado científico y cuadrículas táctiles
+│   └── js/
+│       ├── display_math.js          # Control LCD MathLive, memoria Ans e historial REPLAY
+│       ├── keypad.js                # Teclado Casio, capas SHIFT/ALPHA y navegación de módulos
+│       ├── api_client.js            # Cliente fetch hacia FastAPI y descarga PDF
+│       ├── geogebra_native.js       # Controlador nativo de gráficas por módulo
+│       └── modules_ui.js            # Formularios, validación estricta y tablas de resultados
+└── requirements.txt                 # Dependencias unificadas del proyecto
+
+Endpoints REST Activos (`api/main.py` <-> `frontend/js/api_client.js`):
+- POST `/api/calc/scalar`       -> Modo M0: Evaluación numérica pura de expresiones LaTeX.
+- POST `/api/m1/errores`       -> Módulo 1: Análisis de errores (6 subtemas).
+- POST `/api/m2/no-lineales`   -> Módulo 2: Búsqueda de raíces (6 métodos).
+- POST `/api/m3/sistemas`      -> Módulo 3: Sistemas lineales A·x = b (4 métodos).
+- POST `/api/m5/interpolacion` -> Módulo 5: Interpolación y extrapolación (5 métodos).
+- POST `/api/m6/proyecciones`  -> Módulo 6: Ajustes por mínimos cuadrados y series de tiempo.
+- POST `/api/m4/pdf`           -> Módulo 4: Exportación de reporte académico PDF.
 
 -------------------------------------------------------------------------------
-3. DISEÑO ERGONÓMICO DEL TECLADO Y PANTALLA (ESPECIFICACIÓN DE UI)
+3. ESTADO DE FUNCIONALIDADES (IMPLEMENTADAS VS. PENDIENTES v2.1)
 -------------------------------------------------------------------------------
-A. Pantalla LCD de Escritura Natural (MathLive `<math-field>`):
-   - Barra de estado superior: Indicadores activos `[SHIFT]`, `[ALPHA]`, `[RAD]`,
-     Módulo activo (`M1`..`M6`) y método seleccionado.
-   - Área de entrada LaTeX: Renderiza exponentes, subíndices, fracciones y radicales
-     en tiempo real sin mostrar caracteres `^` ni `*`.
-   - Línea de resultado inferior derecha: Muestra la solución numérica con precisión
-     configurable y almacena el valor en la memoria `Ans`.
+A. Funcionalidades Ya Implementadas y Verificadas:
+   1. Teclado científico Casio con renderizado KaTeX en botones y sub-leyendas
+      SHIFT (dorado) / ALPHA (coral) + bloqueo del teclado QWERTY móvil.
+   2. Barra rápida de variables (`x₁`, `x₂`, `x₃`, `x₄`, `|x|`) en M1 Propagación.
+   3. Memoria `Ans` persistente (`localStorage`) con botón de pegado rápido en inputs.
+   4. Historial de operaciones en cruceta `REPLAY` (`▲` / `▼`) hasta 30 entradas.
+   5. Cuadrículas táctiles dinámicas para matrices `[A|b]` (2×2 a 5×5) y tablas `(x_i, y_i)`.
+   6. Validación estricta en cliente (`_readNumber`, `_readRequiredLatex`, `_readPointsValidated`)
+      antes de enviar JSON al backend.
+   7. Cierre automático del panel en móvil (`< 768px`) al finalizar el cálculo para
+      mostrar el resultado en la pantalla LCD verde.
+   8. Renderizado de tablas de iteraciones, reducción matricial paso a paso,
+      ranking R², gráfica nativa en GeoGebra y exportación a PDF.
 
-B. Distribución del Teclado Científico MNU411 (Inspirado en Casio fx-82MS):
-   - Fila 1 (Control y Navegación):
-     [SHIFT] (dorado) | [ALPHA] (rojo) | Cruceta [REPLAY: ◄ ▲ ▼ ►] | [MODE] (M1–M6) | [PDF/GGB]
-   - Fila 2 (Funciones de Potencia y Cálculo):
-     [ □/□ ] (Fracción)  | [ √□ ] (SHIFT: ³√□) | [ x² ] (SHIFT: x³) | [ □^□ ] (SHIFT: ⁿ√□) | [ ln ] (SHIFT: e^□)
-   - Fila 3 (Trigonometría y Variables MNU411):
-     [ log ] (SHIFT: 10^□) | [ sin ] (SHIFT: sin⁻¹) | [ cos ] (SHIFT: cos⁻¹) | [ tan ] (SHIFT: tan⁻¹) | [ x ] (ALPHA: x₁, x₂, e, π)
-   - Fila 4 (Agrupación y Edición):
-     [ ( ] | [ ) ] | [ , ] (separador puntos/pesos) | [ DEL ] (borrar nodo) | [ AC ] (limpiar pantalla)
-   - Filas 5–8 (Bloque Numérico y Ejecución):
-     [ 7 ] [ 8 ] [ 9 ] [ × ] [ ÷ ]
-     [ 4 ] [ 5 ] [ 6 ] [ + ] [ - ]
-     [ 1 ] [ 2 ] [ 3 ] [ ×10^x ] [ Ans ]
-     [ 0 ] [ . ] [ ± ] [ TABLA / MATRIZ ] [ = (CALC) ]
-
-C. Adaptación por Módulo en la Pantalla de la Calculadora:
-   - M1 (Errores): Selector rápido [EA | ER | EP | Redondeo | Taylor | Propagación].
-   - M2 (No Lineales): Selector [Bisección | Regula Falsi | Secante | Newton 1 | Newton 2 | Punto Fijo]
-     + inputs compactos de intervalo `[a, b]` o `x₀` y tolerancia `E`.
-   - M3 (Sistemas A·x = b): Tecla [TABLA / MATRIZ] despliega cuadrícula táctil `n × (n+1)`
-     con teclado numérico integrado.
-   - M4 (Visualización y Reportes): Botón dedicado [GGB] (abre lienzo GeoGebra nativo) y
-     botón [PDF] (descarga reporte académico de ReportLab).
-   - M5 (Interpolación): Cuadrícula táctil `(x_i, y_i)` + punto `x_eval` para piezas 5.1.A–5.5.D.
-   - M6 (Proyecciones y Series): Cuadrícula `(x_i, y_i)` + selector de ajuste (6.1.A–6.6.F)
-     y comparador R².
+B. Nuevas Funcionalidades / Correcciones a Implementar (Reemplazo Exacto CTRL+F):
+   1. [FIX-LCD-MOBILE] Renderizado garantizado en pantalla LCD (M0–M6):
+      - Esperar `customElements.whenDefined("math-field")` y configurar
+        `MathfieldElement.fontsDirectory` antes de inicializar `<math-field>`.
+      - Incorporar visor de respaldo sincronizado con KaTeX en `.lcd-math-area`
+        para que, si MathLive tarda o falla en navegadores móviles (Brave),
+        nunca se muestre LaTeX crudo (`\text{Ans}\times100`).
+   2. [FEAT-M5-LAGRANGE] Polinomio simbólico y botón rápido `Extrapolar` en M5:
+      - En `engine/interpolacion.py` (`InterpolacionEngine.lagrange`), calcular y
+        retornar `polinomio_latex`, `polinomio_expandido_latex` y `polinomio_geogebra`
+        usando SymPy.
+      - En `frontend/js/modules_ui.js` (`_renderResultsView`), renderizar el
+        polinomio de Lagrange en KaTeX y añadir una barra rápida `Extrapolar / Evaluar en x*`
+        directamente en la vista de resultados para recalcular nuevos valores fuera de rango
+        con un toque.
+   3. [SYNC-SPEC] Mantener este especificador sincronizado con `api/main.py` y
+      `requirements.txt` en cada entrega.
 
 -------------------------------------------------------------------------------
 4. REGLAS TRANSVERSALES DE ESTABILIDAD NUMÉRICA (NIEVES & DOMÍNGUEZ, CAP. 1)
@@ -115,8 +120,7 @@ C. Adaptación por Módulo en la Pantalla de la Calculadora:
 5. CLÁUSULAS DE CIERRE, DOCUMENTACIÓN Y ENTRENAMIENTO (CONTRATO DE VACACIÓN)
 -------------------------------------------------------------------------------
 CLÁUSULA A — DATASHEETS DE INGENIERÍA DEL MOTOR (Palabra clave: 'GENERAR DOCUMENTACIÓN DEL CÓDIGO'):
-Se generará una ficha técnica por cada función de `engine/` en tabla de 2 columnas
-y 2 filas para Google Docs:
+Ficha técnica por cada función de `engine/` en tabla de 2 columnas y 2 filas:
   - Fila 1, Columna 1 -> I) ANÁLISIS (variables, contador, acumulador, lectores, mostrador, bucles con justificación).
   - Fila 1, Columna 2 -> II) DISEÑO (pseudocódigo estructurado en orden lógico).
   - Fila 2 (combinada) -> III) PRUEBAS DE ESCRITORIO (tabla en texto puro con `---` y `|`, 5 datos de prueba, rapidez, eficiencia y límite de desbordamiento).
@@ -5964,7 +5968,8 @@ def render_tab_proyecciones():
 ]]></archivo>
 <archivo ruta="api/__init__.py"><![CDATA["""Capa de servicio REST y traducción simbólica LaTeX -> SymPy para MNU411."""
 ]]></archivo>
-<archivo ruta="api/latex_parser.py"><![CDATA[import re
+<archivo ruta="api/latex_parser.py"><![CDATA[
+import re
 import sympy as sp
 from sympy.parsing.sympy_parser import (
     convert_xor,
@@ -5984,7 +5989,7 @@ def _leer_bloque_delimitado(texto: str, inicio: int, abrir: str = "{", cerrar: s
     while inicio < n and texto[inicio].isspace():
         inicio += 1
     if inicio >= n or texto[inicio] != abrir:
-        raise LatexParseError(f"Se esperaba '{abrir}' en la posición {inicio} de '{texto}'.")
+        raise LatexParseError(f"Expresión incompleta: falta '{abrir}' en la fórmula.")
 
     profundidad = 0
     i = inicio
@@ -5996,7 +6001,7 @@ def _leer_bloque_delimitado(texto: str, inicio: int, abrir: str = "{", cerrar: s
             if profundidad == 0:
                 return texto[inicio + 1 : i], i + 1
         i += 1
-    raise LatexParseError(f"Bloque '{abrir}...{cerrar}' sin cerrar en '{texto}'.")
+    raise LatexParseError(f"Hay un paréntesis o llave '{abrir}...{cerrar}' sin cerrar.")
 
 
 def _expandir_fracciones(s: str) -> str:
@@ -6005,6 +6010,8 @@ def _expandir_fracciones(s: str) -> str:
         idx = s.find(r"\frac")
         num, pos = _leer_bloque_delimitado(s, idx + 5, "{", "}")
         den, fin = _leer_bloque_delimitado(s, pos, "{", "}")
+        if not num.strip() or not den.strip():
+            raise LatexParseError("Hay una fracción con numerador o denominador vacío.")
         s = s[:idx] + f"(({num})/({den}))" + s[fin:]
     return s
 
@@ -6019,9 +6026,13 @@ def _expandir_raices(s: str) -> str:
         if pos < len(s) and s[pos] == "[":
             indice, pos = _leer_bloque_delimitado(s, pos, "[", "]")
             radicando, fin = _leer_bloque_delimitado(s, pos, "{", "}")
+            if not indice.strip() or not radicando.strip():
+                raise LatexParseError("Hay una raíz con índice o contenido vacío.")
             reemplazo = f"(({radicando})**(1/({indice})))"
         else:
             radicando, fin = _leer_bloque_delimitado(s, pos, "{", "}")
+            if not radicando.strip():
+                raise LatexParseError("Hay una raíz cuadrada vacía.")
             reemplazo = f"sqrt({radicando})"
         s = s[:idx] + reemplazo + s[fin:]
     return s
@@ -6032,6 +6043,8 @@ def _expandir_potencias(s: str) -> str:
     while "^{" in s:
         idx = s.find("^{")
         exp_bloque, fin = _leer_bloque_delimitado(s, idx + 1, "{", "}")
+        if not exp_bloque.strip():
+            raise LatexParseError("Hay un exponente vacío. Rellénalo o bórralo con DEL.")
         s = s[:idx] + f"**({exp_bloque})" + s[fin:]
     s = re.sub(r"\^([0-9a-zA-Z])", r"**(\1)", s)
     return s
@@ -6045,10 +6058,15 @@ def _preprocesar_latex(latex_str: str, ans_val: float | None = None) -> str:
     s = latex_str.strip()
     s = re.sub(r"^\$\$|\$\$$|^\$|\$$", "", s).strip()
 
+    # Detectar cuadros editables vacíos de MathLive (\placeholder{} o \square)
+    if r"\placeholder" in s or r"\square" in s:
+        raise LatexParseError("Hay un cuadro vacío (□) en la pantalla. Rellénalo o bórralo con DEL.")
+
     # Normalizar variantes de fracciones y constantes
     s = s.replace(r"\dfrac", r"\frac").replace(r"\tfrac", r"\frac")
     s = s.replace(r"\exponentialE", "e").replace(r"\mathrm{e}", "e")
     s = s.replace(r"\imaginaryI", "I")
+    s = s.replace(r"\left|", "Abs(").replace(r"\right|", ")")
     s = s.replace(r"\left(", "(").replace(r"\right)", ")")
     s = s.replace(r"\left[", "(").replace(r"\right]", ")")
 
@@ -6077,7 +6095,7 @@ def _preprocesar_latex(latex_str: str, ans_val: float | None = None) -> str:
 
 
 def _latex_a_sympy_nativo(limpio: str) -> sp.Expr:
-    """Traduce LaTeX normalizado a expresión SymPy sin dependencias externas (ANTLR)."""
+    """Traduce LaTeX normalizado a expresión SymPy sin dependencias externas."""
     s = _expandir_fracciones(limpio)
     s = _expandir_raices(s)
     s = _expandir_potencias(s)
@@ -6113,6 +6131,10 @@ def _latex_a_sympy_nativo(limpio: str) -> sp.Expr:
     # Llaves restantes de agrupación -> paréntesis
     s = s.replace("{", "(").replace("}", ")")
 
+    s_clean = s.strip()
+    if s_clean.endswith(("+", "-", "*", "/", "^")):
+        raise LatexParseError("La expresión termina en un operador incompleto.")
+
     local_dict = {
         "sin": sp.sin,
         "cos": sp.cos,
@@ -6128,6 +6150,7 @@ def _latex_a_sympy_nativo(limpio: str) -> sp.Expr:
         "log10": lambda z: sp.log(z, 10),
         "sqrt": sp.sqrt,
         "exp": sp.exp,
+        "Abs": sp.Abs,
         "pi": sp.pi,
         "e": sp.E,
         "E": sp.E,
@@ -6136,7 +6159,7 @@ def _latex_a_sympy_nativo(limpio: str) -> sp.Expr:
         implicit_multiplication_application,
         convert_xor,
     )
-    return parse_expr(s, local_dict=local_dict, transformations=transformations)
+    return parse_expr(s_clean, local_dict=local_dict, transformations=transformations)
 
 
 def _sympy_a_geogebra(expr: sp.Expr) -> str:
@@ -6161,8 +6184,8 @@ def latex_a_sympy_info(latex_str: str, ans_val: float | None = None) -> dict:
         expr = _latex_a_sympy_nativo(limpio)
     except LatexParseError:
         raise
-    except Exception as exc:
-        raise LatexParseError(f"No se pudo interpretar la expresión '{latex_str}'. Detalle: {exc}")
+    except Exception:
+        raise LatexParseError("Sintaxis matemática incompleta. Revisa paréntesis o exponentes.")
 
     variables = sorted([s.name for s in expr.free_symbols])
 
@@ -6185,13 +6208,13 @@ def evaluar_escalar_latex(latex_str: str, ans_val: float | None = None) -> dict:
 
     if info["variables"]:
         raise LatexParseError(
-            f"La expresión contiene variables libres ({', '.join(info['variables'])}). "
-            "Seleccione un módulo numérico (M1–M6) para resolverla."
+            f"La expresión contiene variables ({', '.join(info['variables'])}). "
+            "Selecciona un módulo numérico (M1–M6) para resolverla."
         )
 
     valor_eval = expr.evalf(15)
     if not valor_eval.is_real:
-        raise LatexParseError("El resultado no pertenece a los números reales (complejo o indefinido).")
+        raise LatexParseError("El resultado no pertenece a los números reales (indefinido o complejo).")
 
     valor_float = float(valor_eval)
     if sp.zoo in expr.atoms() or abs(valor_float) == float("inf"):
@@ -6202,398 +6225,7 @@ def evaluar_escalar_latex(latex_str: str, ans_val: float | None = None) -> dict:
         "sympy_str": info["sympy_str"],
         "latex_normalizado": info["latex_normalizado"],
     }
-]]></archivo>
 
-<archivo ruta="api/main.py"><![CDATA[#api/main.py
-import math
-from pathlib import Path
-from typing import Any
-
-import numpy as np
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response
-from fastapi.staticfiles import StaticFiles
-
-from api.latex_parser import (
-    LatexParseError,
-    evaluar_escalar_latex,
-    latex_a_sympy_info,
-)
-from api.schemas import (
-    Modulo1ErroresRequest,
-    Modulo2NoLinealesRequest,
-    Modulo3SistemasRequest,
-    Modulo5InterpolacionRequest,
-    Modulo6ProyeccionesRequest,
-    PDFExportRequest,
-    ParseLatexRequest,
-    ScalarCalcRequest,
-)
-from engine.errores import ErroresEngine
-from engine.interpolacion import (
-    InterpolacionEngine,
-    interpolacion_diferencias_divididas,
-    interpolacion_lineal,
-)
-from engine.no_lineales import NoLinealesEngine
-from engine.pdf_generator import PDFReportEngine
-from engine.proyecciones import (
-    comparar_modelos_proyeccion,
-    pronostico_series_tiempo,
-    regresion_exponencial,
-    regresion_lineal_simple,
-    regresion_logaritmica,
-    regresion_polinomial,
-    regresion_potencial,
-)
-from engine.sistemas_lineales import SistemasLinealesEngine
-
-app = FastAPI(
-    title="MNU411 API — Calculadora Científica de Métodos Numéricos",
-    description="Puente REST entre la interfaz PWA LaTeX y el motor matemático MNU411.",
-    version="2.0.0",
-)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-
-def _sanitizar_json(obj: Any) -> Any:
-    """Convierte tipos NumPy y valores NaN/Inf a tipos nativos seguros para JSON."""
-    if isinstance(obj, dict):
-        return {str(k): _sanitizar_json(v) for k, v in obj.items()}
-    if isinstance(obj, (list, tuple)):
-        return [_sanitizar_json(v) for v in obj]
-    if isinstance(obj, np.ndarray):
-        return _sanitizar_json(obj.tolist())
-    if isinstance(obj, (np.floating, float)):
-        val = float(obj)
-        return None if (math.isnan(val) or math.isinf(val)) else val
-    if isinstance(obj, (np.integer, int)):
-        return int(obj)
-    if isinstance(obj, (np.bool_, bool)):
-        return bool(obj)
-    return obj
-
-
-# =============================================================================
-# UTILIDADES DE TRADUCCIÓN LATEX Y CALCULADORA ESTÁNDAR
-# =============================================================================
-@app.get("/api/health")
-def health_check():
-    return {"status": "ok", "sistema": "MNU411 v2.0"}
-
-
-@app.post("/api/parse-latex")
-def api_parse_latex(req: ParseLatexRequest):
-    try:
-        info = latex_a_sympy_info(req.latex, ans_val=req.ans)
-        return {
-            "exito": True,
-            "sympy_str": info["sympy_str"],
-            "geogebra_str": info["geogebra_str"],
-            "latex_normalizado": info["latex_normalizado"],
-            "variables": info["variables"],
-        }
-    except LatexParseError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-
-@app.post("/api/calc/scalar")
-def api_calc_scalar(req: ScalarCalcRequest):
-    try:
-        res = evaluar_escalar_latex(req.latex, ans_val=req.ans)
-        return {"exito": True, **res}
-    except LatexParseError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-
-# =============================================================================
-# MÓDULO 1: ANÁLISIS DE ERRORES
-# =============================================================================
-@app.post("/api/m1/errores")
-def api_modulo_1(req: Modulo1ErroresRequest):
-    try:
-        if req.tipo == "absoluto":
-            if req.x is None or req.x_bar is None:
-                raise ValueError("Se requieren 'x' y 'x_bar'.")
-            val = ErroresEngine.error_absoluto(req.x, req.x_bar)
-            return {"exito": True, "tipo": req.tipo, "resultado": val}
-
-        if req.tipo == "relativo":
-            if req.x is None or req.x_bar is None:
-                raise ValueError("Se requieren 'x' y 'x_bar'.")
-            val = ErroresEngine.error_relativo(req.x, req.x_bar)
-            return {"exito": True, "tipo": req.tipo, "resultado": val}
-
-        if req.tipo == "porcentual":
-            if req.x is None or req.x_bar is None:
-                raise ValueError("Se requieren 'x' y 'x_bar'.")
-            val = ErroresEngine.error_porcentual(req.x, req.x_bar)
-            return {"exito": True, "tipo": req.tipo, "resultado": val}
-
-        if req.tipo == "redondeo":
-            cota = ErroresEngine.cota_redondeo(req.d or 4)
-            resp = {"exito": True, "tipo": req.tipo, "cota_teorica": cota}
-            if req.x is not None and req.x_bar is not None:
-                ea = ErroresEngine.error_absoluto(req.x, req.x_bar)
-                resp["error_absoluto"] = ea
-                resp["cumple_cota"] = ea <= cota
-            return resp
-
-        if req.tipo == "taylor":
-            if not req.func_latex:
-                raise ValueError("Debe ingresar la función f(x) en pantalla.")
-            info = latex_a_sympy_info(req.func_latex)
-            res = ErroresEngine.error_truncamiento_taylor(
-                info["sympy_str"], req.x0 or 0.0, req.x_eval or 0.5, req.orden or 3
-            )
-            return _sanitizar_json(
-                {
-                    "exito": True,
-                    "tipo": req.tipo,
-                    "sympy_str": info["sympy_str"],
-                    "geogebra_str": info["geogebra_str"],
-                    "polinomio_latex": res["polinomio_latex"],
-                    "val_real": res["val_real"],
-                    "val_aprox": res["val_aprox"],
-                    "error_truncamiento": res["error_truncamiento"],
-                    "cota_teorica": res["cota_teorica"],
-                    "cumple_cota": res["cumple_cota"],
-                }
-            )
-
-        if req.tipo == "propagacion":
-            if not req.func_latex:
-                raise ValueError("Debe ingresar la función multivariable en pantalla.")
-            info = latex_a_sympy_info(req.func_latex)
-            valores = req.valores or {}
-            errores = req.errores or {}
-            faltantes = [v for v in info["variables"] if v not in valores or v not in errores]
-            if faltantes:
-                return {
-                    "exito": False,
-                    "requiere_variables": True,
-                    "variables": info["variables"],
-                    "mensaje": f"Ingrese valor y error para: {', '.join(faltantes)}",
-                }
-            res = ErroresEngine.propagacion_error(info["sympy_str"], valores, errores)
-            detalles_limpios = [
-                {
-                    "variable": d["variable"],
-                    "derivada_latex": d["derivada_latex"],
-                    "valor_evaluado": d["valor_evaluado"],
-                    "error_variable": d["error_variable"],
-                    "aporte_error": d["aporte_error"],
-                }
-                for d in res["detalles"]
-            ]
-            return _sanitizar_json(
-                {
-                    "exito": True,
-                    "tipo": req.tipo,
-                    "variables": info["variables"],
-                    "valor_nominal": res["valor_nominal"],
-                    "error_total": res["error_total"],
-                    "detalles": detalles_limpios,
-                    "resultado_intervalo": res["resultado_intervalo"],
-                }
-            )
-
-    except (LatexParseError, ValueError, ZeroDivisionError) as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error interno en Módulo 1: {e}")
-
-
-# =============================================================================
-# MÓDULO 2: ECUACIONES NO LINEALES
-# =============================================================================
-@app.post("/api/m2/no-lineales")
-def api_modulo_2(req: Modulo2NoLinealesRequest):
-    try:
-        info = latex_a_sympy_info(req.func_latex)
-        func_str = info["sympy_str"]
-
-        if req.metodo == "punto_fijo":
-            if req.x0 is None:
-                raise ValueError("Se requiere el valor inicial x₀.")
-            res = NoLinealesEngine.punto_fijo(func_str, req.x0, req.tol, req.max_iter)
-        elif req.metodo == "biseccion":
-            if req.a is None or req.b is None:
-                raise ValueError("Se requieren los extremos a y b.")
-            res = NoLinealesEngine.biseccion(func_str, req.a, req.b, req.tol, req.max_iter)
-        elif req.metodo == "regula_falsi":
-            if req.a is None or req.b is None:
-                raise ValueError("Se requieren los extremos a y b.")
-            res = NoLinealesEngine.regula_falsi(func_str, req.a, req.b, req.tol, req.max_iter)
-        elif req.metodo == "secante":
-            if req.x0 is None or req.x1 is None:
-                raise ValueError("Se requieren los dos puntos iniciales x₀ y x₁.")
-            res = NoLinealesEngine.secante(func_str, req.x0, req.x1, req.tol, req.max_iter)
-        elif req.metodo == "newton_1":
-            if req.x0 is None:
-                raise ValueError("Se requiere el valor inicial x₀.")
-            res = NoLinealesEngine.newton_raphson_1(func_str, req.x0, req.tol, req.max_iter)
-        else:
-            if req.x0 is None:
-                raise ValueError("Se requiere el valor inicial x₀.")
-            res = NoLinealesEngine.newton_raphson_2(func_str, req.x0, req.tol, req.max_iter)
-
-        res["exito"] = True
-        res["sympy_str"] = func_str
-        res["geogebra_str"] = info["geogebra_str"]
-        return _sanitizar_json(res)
-
-    except (LatexParseError, ValueError, ZeroDivisionError) as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error interno en Módulo 2: {e}")
-
-
-# =============================================================================
-# MÓDULO 3: SISTEMAS DE ECUACIONES LINEALES
-# =============================================================================
-@app.post("/api/m3/sistemas")
-def api_modulo_3(req: Modulo3SistemasRequest):
-    try:
-        if req.metodo == "gauss":
-            res = SistemasLinealesEngine.eliminacion_gaussiana(req.A, req.b)
-        elif req.metodo == "gauss_jordan":
-            res = SistemasLinealesEngine.gauss_jordan(req.A, req.b)
-        elif req.metodo == "jacobi":
-            res = SistemasLinealesEngine.jacobi(
-                req.A, req.b, req.x0, req.tol, req.max_iter, req.tipo_error
-            )
-        else:
-            res = SistemasLinealesEngine.gauss_seidel(
-                req.A, req.b, req.x0, req.tol, req.max_iter, req.tipo_error
-            )
-
-        res["exito"] = True
-        return _sanitizar_json(res)
-
-    except (ValueError, ZeroDivisionError) as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error interno en Módulo 3: {e}")
-
-
-# =============================================================================
-# MÓDULO 5: INTERPOLACIÓN FUNCIONAL
-# =============================================================================
-@app.post("/api/m5/interpolacion")
-def api_modulo_5(req: Modulo5InterpolacionRequest):
-    try:
-        if req.metodo in ("newton_adelante", "newton_atras", "lagrange"):
-            if req.metodo == "newton_adelante":
-                res = InterpolacionEngine.newton_adelante(req.x_vals, req.y_vals, req.x_eval)
-            elif req.metodo == "newton_atras":
-                res = InterpolacionEngine.newton_atras(req.x_vals, req.y_vals, req.x_eval)
-            else:
-                res = InterpolacionEngine.lagrange(req.x_vals, req.y_vals, req.x_eval)
-
-            # Adjuntar polinomio equivalente para GeoGebra
-            res_poli = interpolacion_diferencias_divididas(req.x_vals, req.y_vals, req.x_eval)
-            res["exito"] = True
-            res["resultado"] = res["solucion"]
-            res["polinomio_geogebra"] = (
-                res_poli["polinomio_geogebra"] if res_poli.get("exito") else None
-            )
-            res["polinomio_expandido_latex"] = (
-                res_poli["polinomio_expandido_latex"] if res_poli.get("exito") else None
-            )
-            return _sanitizar_json(res)
-
-        if req.metodo == "diferencias_divididas":
-            res = interpolacion_diferencias_divididas(req.x_vals, req.y_vals, req.x_eval)
-        else:
-            res = interpolacion_lineal(req.x_vals, req.y_vals, req.x_eval)
-
-        if not res.get("exito"):
-            raise ValueError(res.get("mensaje", "Error en interpolación."))
-        return _sanitizar_json(res)
-
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error interno en Módulo 5: {e}")
-
-
-# =============================================================================
-# MÓDULO 6: PROYECCIONES Y SERIES DE TIEMPO
-# =============================================================================
-@app.post("/api/m6/proyecciones")
-def api_modulo_6(req: Modulo6ProyeccionesRequest):
-    try:
-        if req.metodo == "lineal":
-            res = regresion_lineal_simple(req.x_vals, req.y_vals, req.x_eval)
-        elif req.metodo == "polinomial":
-            res = regresion_polinomial(req.x_vals, req.y_vals, req.grado, req.x_eval)
-        elif req.metodo == "exponencial":
-            res = regresion_exponencial(req.x_vals, req.y_vals, req.x_eval)
-        elif req.metodo == "potencial":
-            res = regresion_potencial(req.x_vals, req.y_vals, req.x_eval)
-        elif req.metodo == "logaritmica":
-            res = regresion_logaritmica(req.x_vals, req.y_vals, req.x_eval)
-        elif req.metodo == "comparar":
-            res = comparar_modelos_proyeccion(req.x_vals, req.y_vals, req.x_eval, req.grado)
-        else:
-            res = pronostico_series_tiempo(
-                y_vals=req.y_vals,
-                submetodo=req.submetodo_ts,
-                ventana_k=req.ventana_k,
-                pesos=req.pesos,
-                alpha=req.alpha,
-                beta=req.beta,
-                horizonte_h=req.horizonte_h,
-                periodo_estacional=req.periodo_estacional,
-                t_vals=req.x_vals,
-            )
-
-        if not res.get("exito"):
-            raise ValueError(res.get("mensaje", "Error en proyección."))
-        return _sanitizar_json(res)
-
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error interno en Módulo 6: {e}")
-
-
-# =============================================================================
-# MÓDULO 4: EXPORTACIÓN PDF ACADÉMICA
-# =============================================================================
-@app.post("/api/m4/pdf")
-def api_generar_pdf(req: PDFExportRequest):
-    try:
-        pdf_bytes = PDFReportEngine.generar_reporte_pdf(
-            titulo_metodo=req.titulo_metodo,
-            entradas_dict=req.entradas_dict,
-            resultado_str=req.resultado_str,
-            iteraciones_list=req.iteraciones_list,
-            pasos_matriz_list=req.pasos_matriz_list,
-        )
-        nombre_archivo = f"Reporte_{req.titulo_metodo[:24].replace(' ', '_')}.pdf"
-        return Response(
-            content=pdf_bytes,
-            media_type="application/pdf",
-            headers={"Content-Disposition": f'attachment; filename="{nombre_archivo}"'},
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error al generar PDF: {e}")
-
-
-# Montar el frontend PWA en la raíz si el directorio ya existe (Pieza 2)
-FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
-if FRONTEND_DIR.exists():
-    app.mount("/", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="frontend")
 ]]></archivo>
 <archivo ruta="api/schemas.py"><![CDATA[#api/schemas.py
 from typing import Any, Literal
@@ -9093,9 +8725,11 @@ window.addEventListener("DOMContentLoaded", () => {
   }, 0);
 });
 ]]></archivo>
+
 <archivo ruta="frontend/js/modules_ui.js"><![CDATA[/**
- * MNU411 v2.0 — Controlador de Subtemas, Cuadrículas Táctiles y Resultados (M1–M6)
- * Alineado exactamente con api/schemas.py y api/main.py
+/**
+ * MNU411 v2.0 — Controlador de Subtemas, Validación de Entradas y Resultados (M1–M6)
+ * Alineado con api/schemas.py y api/main.py
  */
 class ModulesUIController {
   constructor() {
@@ -9182,12 +8816,78 @@ class ModulesUIController {
         this.pdfBtn.textContent = "...";
         await window.MNU411.api.downloadPdfReport(this.lastPdfPayload);
       } catch (err) {
-        window.MNU411.display?.setMessage(err.message, true);
+        this._showFormError(err.message);
       } finally {
         this.pdfBtn.disabled = false;
         this.pdfBtn.textContent = "PDF";
       }
     });
+  }
+
+  _showFormError(message) {
+    window.MNU411.display?.setMessage(message, true);
+    const banner = document.getElementById("module-error-banner");
+    if (banner) {
+      banner.textContent = `⚠️ ${message}`;
+      banner.style.display = "block";
+    }
+    // En móvil, si el panel estaba cerrado al pulsar '=' desde la calculadora, abrirlo para ver el aviso
+    if (window.innerWidth < 768 && this.currentModule !== "M0") {
+      document.getElementById("workstation-panel")?.classList.add("mobile-open");
+      window.MNU411.keypad?.switchWorkstationTab("params");
+    }
+  }
+
+  _clearFormError() {
+    const banner = document.getElementById("module-error-banner");
+    if (banner) {
+      banner.textContent = "";
+      banner.style.display = "none";
+    }
+  }
+
+  /**
+   * Lee y valida estrictamente un campo numérico del formulario.
+   * Evita que celdas vacías se conviertan silenciosamente en 0 o NaN.
+   */
+  _readNumber(id, label, { required = true, min = null, max = null, positive = false, integer = false } = {}) {
+    const el = document.getElementById(id);
+    if (!el) return null;
+    const raw = String(el.value ?? "").trim();
+
+    if (raw === "") {
+      if (!required) return null;
+      throw new Error(`Falta ingresar el valor en "${label}".`);
+    }
+
+    const num = Number(raw);
+    if (!Number.isFinite(num)) {
+      throw new Error(`El campo "${label}" debe contener un número válido.`);
+    }
+    if (integer && !Number.isInteger(num)) {
+      throw new Error(`El campo "${label}" debe ser un número entero.`);
+    }
+    if (positive && num <= 0) {
+      throw new Error(`El campo "${label}" debe ser mayor que cero (> 0).`);
+    }
+    if (min !== null && num < min) {
+      throw new Error(`El campo "${label}" debe ser mayor o igual a ${min}.`);
+    }
+    if (max !== null && num > max) {
+      throw new Error(`El campo "${label}" debe ser menor o igual a ${max}.`);
+    }
+    return num;
+  }
+
+  _readRequiredLatex(contextDesc) {
+    const latex = window.MNU411.display?.getLatex().trim() || "";
+    if (!latex) {
+      throw new Error(`Escribe primero ${contextDesc} en la pantalla verde de la calculadora.`);
+    }
+    if (latex.includes("\\placeholder") || latex.includes("\\square")) {
+      throw new Error("Hay un cuadro vacío (□) en la pantalla verde. Rellénalo o bórralo con DEL.");
+    }
+    return latex;
   }
 
   renderModule(moduleCode) {
@@ -9235,6 +8935,11 @@ class ModulesUIController {
         <div class="subtema-bar">${pillsHtml}</div>
       </div>
       <div id="dynamic-form-fields" class="dynamic-form-fields"></div>
+      <div
+        id="module-error-banner"
+        role="alert"
+        style="display:none; margin-top:12px; padding:10px 12px; border-radius:8px; background:#fef2f2; border:1px solid #fca5a5; color:#991b1b; font-size:0.82rem; font-weight:700; line-height:1.4;"
+      ></div>
       <div class="form-footer-actions">
         <button type="button" id="btn-load-example" class="btn-secondary-sm">Cargar ejemplo</button>
         <button type="button" id="btn-run-method" class="btn-primary-run">Calcular Método ( = )</button>
@@ -9249,6 +8954,7 @@ class ModulesUIController {
     });
 
     document.getElementById("btn-load-example")?.addEventListener("click", () => {
+      this._clearFormError();
       this._loadPresetExample();
     });
 
@@ -9303,7 +9009,7 @@ class ModulesUIController {
       } else if (sub === "taylor") {
         window.MNU411.display?.setPrompt("f(x):");
         formEl.innerHTML = `
-          <p class="helper-hint">Escribe <strong>f(x)</strong> en la pantalla LCD izquierda (ej. eˣ o sin(x)) y define los parámetros:</p>
+          <p class="helper-hint">Escribe <strong>f(x)</strong> en la pantalla LCD verde (o pulsa <em>Cargar ejemplo</em>) y define los parámetros:</p>
           <div class="params-grid-3">
             ${this._numInputHtml("p-x0", "Punto expansión (x₀)", "0")}
             ${this._numInputHtml("p-xeval", "Evaluar en (x)", "0.5")}
@@ -9319,10 +9025,10 @@ class ModulesUIController {
             ${this._numInputHtml("p-dx1", "Error Δx₁", "0.01")}
             ${this._numInputHtml("p-x2", "Valor x₂", "3.0")}
             ${this._numInputHtml("p-dx2", "Error Δx₂", "0.01")}
-            ${this._numInputHtml("p-x3", "Valor x₃ (si se usa)", "1.0")}
-            ${this._numInputHtml("p-dx3", "Error Δx₃ (si se usa)", "0.01")}
-            ${this._numInputHtml("p-x4", "Valor x₄ (si se usa)", "1.0")}
-            ${this._numInputHtml("p-dx4", "Error Δx₄ (si se usa)", "0.01")}
+            ${this._numInputHtml("p-x3", "Valor x₃ (opcional)", "1.0")}
+            ${this._numInputHtml("p-dx3", "Error Δx₃ (opcional)", "0.01")}
+            ${this._numInputHtml("p-x4", "Valor x₄ (opcional)", "1.0")}
+            ${this._numInputHtml("p-dx4", "Error Δx₄ (opcional)", "0.01")}
           </div>
         `;
       }
@@ -9338,7 +9044,7 @@ class ModulesUIController {
 
       if (sub === "biseccion" || sub === "regula_falsi") {
         formEl.innerHTML = `
-          <p class="helper-hint">Escribe <strong>f(x)</strong> en la calculadora izquierda e indica el intervalo <strong>[a, b]</strong>:</p>
+          <p class="helper-hint">Escribe <strong>f(x)</strong> en la pantalla verde (o pulsa <em>Cargar ejemplo</em>) e indica el intervalo <strong>[a, b]</strong>:</p>
           <div class="params-grid-2">
             ${this._numInputHtml("p-a", "Extremo inferior (a)", "1")}
             ${this._numInputHtml("p-b", "Extremo superior (b)", "2")}
@@ -9351,7 +9057,7 @@ class ModulesUIController {
             ? "g(x) tal que x = g(x)"
             : "f(x) (las derivadas se calculan simbólicamente)";
         formEl.innerHTML = `
-          <p class="helper-hint">Escribe <strong>${fnLabel}</strong> en la calculadora izquierda:</p>
+          <p class="helper-hint">Escribe <strong>${fnLabel}</strong> en la pantalla verde (o pulsa <em>Cargar ejemplo</em>):</p>
           <div class="params-grid-3">
             ${this._numInputHtml("p-x0", "Valor inicial (x₀)", "1.5")}
             ${commonStop}
@@ -9359,7 +9065,7 @@ class ModulesUIController {
         `;
       } else if (sub === "secante") {
         formEl.innerHTML = `
-          <p class="helper-hint">Escribe <strong>f(x)</strong> en la calculadora izquierda y dos puntos iniciales:</p>
+          <p class="helper-hint">Escribe <strong>f(x)</strong> en la pantalla verde y dos puntos iniciales:</p>
           <div class="params-grid-2">
             ${this._numInputHtml("p-x0", "Primer punto (x₀)", "1")}
             ${this._numInputHtml("p-x1", "Segundo punto (x₁)", "2")}
@@ -9402,6 +9108,7 @@ class ModulesUIController {
 
       this._renderMatrixGrid(3, isIterative);
       document.getElementById("p-dim-n")?.addEventListener("change", (e) => {
+        this._clearFormError();
         this._renderMatrixGrid(Number(e.target.value), isIterative);
       });
     }
@@ -9509,9 +9216,10 @@ class ModulesUIController {
       btn.addEventListener("click", () => {
         const ans = window.MNU411.display?.getAns();
         if (ans === null || ans === undefined) {
-          window.MNU411.display?.setMessage("Memoria Ans vacía", true);
+          this._showFormError("La memoria Ans está vacía. Calcula un valor primero.");
           return;
         }
+        this._clearFormError();
         const input = document.getElementById(btn.getAttribute("data-target"));
         if (input) input.value = ans;
       });
@@ -9638,147 +9346,265 @@ class ModulesUIController {
     window.MNU411.display?.setMessage("Ejemplo cargado. Presiona =");
   }
 
+  _readPointsValidated(minPoints = 2) {
+    const xInputs = Array.from(document.querySelectorAll(".pt-x"));
+    const yInputs = Array.from(document.querySelectorAll(".pt-y"));
+
+    if (xInputs.length < minPoints) {
+      throw new Error(`Se requieren al menos ${minPoints} filas de datos en la tabla.`);
+    }
+
+    const x_vals = [];
+    const y_vals = [];
+
+    for (let i = 0; i < xInputs.length; i++) {
+      const rx = String(xInputs[i].value ?? "").trim();
+      const ry = String(yInputs[i].value ?? "").trim();
+      if (rx === "" || ry === "") {
+        throw new Error(`Fila ${i + 1} de la tabla tiene una celda vacía.`);
+      }
+      const nx = Number(rx);
+      const ny = Number(ry);
+      if (!Number.isFinite(nx) || !Number.isFinite(ny)) {
+        throw new Error(`Fila ${i + 1} contiene un valor no numérico.`);
+      }
+      x_vals.push(nx);
+      y_vals.push(ny);
+    }
+
+    return { x_vals, y_vals };
+  }
+
   /**
-   * Construye el JSON exacto que espera cada Pydantic Schema en api/schemas.py
+   * Valida entradas en el navegador y construye el JSON exacto para api/schemas.py
    */
   _collectPayload() {
     const mod = this.currentModule;
     const sub = this.currentSubtema;
-    const latex = window.MNU411.display?.getLatex().trim() || "";
 
     if (mod === "M1") {
       if (["absoluto", "relativo", "porcentual"].includes(sub)) {
-        return {
-          tipo: sub,
-          x: Number(document.getElementById("p-x")?.value),
-          x_bar: Number(document.getElementById("p-x-bar")?.value),
-        };
+        const x = this._readNumber("p-x", "Valor Real (x)");
+        const x_bar = this._readNumber("p-x-bar", "Valor Aproximado (x̄)");
+        if ((sub === "relativo" || sub === "porcentual") && x === 0) {
+          throw new Error("El Valor Real (x) no puede ser 0 para calcular error relativo o porcentual.");
+        }
+        return { tipo: sub, x, x_bar };
       }
+
       if (sub === "redondeo") {
-        return {
-          tipo: "redondeo",
-          d: Number(document.getElementById("p-d")?.value || 4),
-          x: Number(document.getElementById("p-x")?.value),
-          x_bar: Number(document.getElementById("p-x-bar")?.value),
-        };
+        const d = this._readNumber("p-d", "Cifras significativas (d)", { min: 1, max: 15, integer: true });
+        const x = this._readNumber("p-x", "Valor Real (x)", { required: false });
+        const x_bar = this._readNumber("p-x-bar", "Valor Aproximado (x̄)", { required: false });
+        if ((x === null) !== (x_bar === null)) {
+          throw new Error("Para verificar redondeo ingresa tanto x como x̄, o deja ambos vacíos para ver solo la cota.");
+        }
+        return { tipo: "redondeo", d, x, x_bar };
       }
+
       if (sub === "taylor") {
-        return {
-          tipo: "taylor",
-          func_latex: latex,
-          x0: Number(document.getElementById("p-x0")?.value || 0),
-          x_eval: Number(document.getElementById("p-xeval")?.value || 0.5),
-          orden: Number(document.getElementById("p-orden")?.value || 3),
-        };
+        const func_latex = this._readRequiredLatex("la función f(x)");
+        const x0 = this._readNumber("p-x0", "Punto de expansión (x₀)");
+        const x_eval = this._readNumber("p-xeval", "Valor a evaluar (x)");
+        const orden = this._readNumber("p-orden", "Orden / Grado (d)", { min: 1, max: 20, integer: true });
+        return { tipo: "taylor", func_latex, x0, x_eval, orden };
       }
+
       if (sub === "propagacion") {
-        // latex_parser.py convierte x_{1} -> x1, x_{2} -> x2, etc.
-        return {
-          tipo: "propagacion",
-          func_latex: latex,
-          valores: {
-            x1: Number(document.getElementById("p-x1")?.value || 0),
-            x2: Number(document.getElementById("p-x2")?.value || 0),
-            x3: Number(document.getElementById("p-x3")?.value || 0),
-            x4: Number(document.getElementById("p-x4")?.value || 0),
-          },
-          errores: {
-            x1: Number(document.getElementById("p-dx1")?.value || 0),
-            x2: Number(document.getElementById("p-dx2")?.value || 0),
-            x3: Number(document.getElementById("p-dx3")?.value || 0),
-            x4: Number(document.getElementById("p-dx4")?.value || 0),
-          },
-        };
+        const func_latex = this._readRequiredLatex("la función multivariable f(x₁, x₂, ...)");
+        const valores = {};
+        const errores = {};
+        for (let idx = 1; idx <= 4; idx++) {
+          const v = this._readNumber(`p-x${idx}`, `Valor x${idx}`, { required: false });
+          const dv = this._readNumber(`p-dx${idx}`, `Error Δx${idx}`, { required: false, min: 0 });
+          if (v !== null) valores[`x${idx}`] = v;
+          if (dv !== null) errores[`x${idx}`] = dv;
+        }
+        return { tipo: "propagacion", func_latex, valores, errores };
       }
     }
 
     if (mod === "M2") {
-      return {
-        metodo: sub,
-        func_latex: latex,
-        a: Number(document.getElementById("p-a")?.value),
-        b: Number(document.getElementById("p-b")?.value),
-        x0: Number(document.getElementById("p-x0")?.value),
-        x1: Number(document.getElementById("p-x1")?.value),
-        tol: Number(document.getElementById("p-tol")?.value || 0.0001),
-        max_iter: Number(document.getElementById("p-iter")?.value || 30),
-      };
+      const func_latex = this._readRequiredLatex(
+        sub === "punto_fijo" ? "la función g(x)" : "la función f(x)"
+      );
+      const tol = this._readNumber("p-tol", "Tolerancia (E)", { positive: true });
+      const max_iter = this._readNumber("p-iter", "Iteraciones máx.", { min: 1, max: 500, integer: true });
+
+      if (sub === "biseccion" || sub === "regula_falsi") {
+        const a = this._readNumber("p-a", "Extremo inferior (a)");
+        const b = this._readNumber("p-b", "Extremo superior (b)");
+        if (a === b) {
+          throw new Error("Los extremos a y b deben ser números distintos.");
+        }
+        return { metodo: sub, func_latex, a, b, tol, max_iter };
+      }
+
+      if (sub === "secante") {
+        const x0 = this._readNumber("p-x0", "Primer punto (x₀)");
+        const x1 = this._readNumber("p-x1", "Segundo punto (x₁)");
+        if (x0 === x1) {
+          throw new Error("Los dos puntos iniciales x₀ y x₁ deben ser distintos.");
+        }
+        return { metodo: sub, func_latex, x0, x1, tol, max_iter };
+      }
+
+      const x0 = this._readNumber("p-x0", "Valor inicial (x₀)");
+      return { metodo: sub, func_latex, x0, tol, max_iter };
     }
 
     if (mod === "M3") {
-      const n = Number(document.getElementById("p-dim-n")?.value || 3);
+      const n = this._readNumber("p-dim-n", "Dimensión n", { min: 2, max: 6, integer: true });
       const A = Array.from({ length: n }, () => Array(n).fill(0));
       const b = Array(n).fill(0);
       const x0 = Array(n).fill(0);
 
       document.querySelectorAll(".mat-a").forEach((inp) => {
-        A[Number(inp.dataset.r)][Number(inp.dataset.c)] = Number(inp.value);
+        const r = Number(inp.dataset.r);
+        const c = Number(inp.dataset.c);
+        const raw = String(inp.value ?? "").trim();
+        if (raw === "" || !Number.isFinite(Number(raw))) {
+          throw new Error(`Falta o es inválido el coeficiente en Fila ${r + 1}, Columna x${c + 1}.`);
+        }
+        A[r][c] = Number(raw);
       });
+
       document.querySelectorAll(".vec-b").forEach((inp) => {
-        b[Number(inp.dataset.r)] = Number(inp.value);
+        const r = Number(inp.dataset.r);
+        const raw = String(inp.value ?? "").trim();
+        if (raw === "" || !Number.isFinite(Number(raw))) {
+          throw new Error(`Falta o es inválido el término independiente b en Fila ${r + 1}.`);
+        }
+        b[r] = Number(raw);
       });
-      document.querySelectorAll(".vec-x0").forEach((inp) => {
-        x0[Number(inp.dataset.r)] = Number(inp.value);
-      });
+
+      const isIterative = sub === "jacobi" || sub === "gauss_seidel";
+      if (isIterative) {
+        document.querySelectorAll(".vec-x0").forEach((inp) => {
+          const r = Number(inp.dataset.r);
+          const raw = String(inp.value ?? "").trim();
+          if (raw === "" || !Number.isFinite(Number(raw))) {
+            throw new Error(`Falta o es inválido el valor inicial x⁽⁰⁾ en Fila ${r + 1}.`);
+          }
+          x0[r] = Number(raw);
+        });
+      }
+
+      const tol = isIterative ? this._readNumber("p-tol", "Tolerancia (E)", { positive: true }) : 1e-4;
+      const max_iter = isIterative
+        ? this._readNumber("p-iter", "Iteraciones máx.", { min: 1, max: 500, integer: true })
+        : 30;
 
       return {
         metodo: sub,
         A,
         b,
-        x0,
-        tol: Number(document.getElementById("p-tol")?.value || 1e-4),
-        max_iter: Number(document.getElementById("p-iter")?.value || 30),
+        x0: isIterative ? x0 : null,
+        tol,
+        max_iter,
         tipo_error: document.getElementById("p-tipo-err")?.value || "residuo",
       };
     }
 
     if (mod === "M5") {
-      const x_vals = Array.from(document.querySelectorAll(".pt-x")).map((i) => Number(i.value));
-      const y_vals = Array.from(document.querySelectorAll(".pt-y")).map((i) => Number(i.value));
-      return {
-        metodo: sub,
-        x_vals,
-        y_vals,
-        x_eval: Number(document.getElementById("p-xeval")?.value),
-      };
+      const { x_vals, y_vals } = this._readPointsValidated(2);
+      if (new Set(x_vals).size !== x_vals.length) {
+        throw new Error("Los valores de xᵢ no pueden repetirse en interpolación.");
+      }
+      const x_eval = this._readNumber("p-xeval", "Valor x* a interpolar");
+      return { metodo: sub, x_vals, y_vals, x_eval };
     }
 
     if (mod === "M6") {
-      const x_vals = Array.from(document.querySelectorAll(".pt-x")).map((i) => Number(i.value));
-      const y_vals = Array.from(document.querySelectorAll(".pt-y")).map((i) => Number(i.value));
-      const pesosRaw = document.getElementById("p-pesos")?.value || "0.2, 0.3, 0.5";
-      const pesos = pesosRaw
-        .split(",")
-        .map((s) => Number(s.trim()))
-        .filter((n) => Number.isFinite(n));
+      const minPts = sub === "series_tiempo" ? 3 : 2;
+      const { x_vals, y_vals } = this._readPointsValidated(minPts);
 
-      return {
-        metodo: sub,
-        x_vals,
-        y_vals,
-        x_eval: Number(document.getElementById("p-xeval")?.value || 7),
-        grado: Number(document.getElementById("p-grado")?.value || 2),
-        submetodo_ts: document.getElementById("p-ts-sub")?.value || "SES",
-        ventana_k: Number(document.getElementById("p-ventana-k")?.value || 3),
-        pesos: pesos.length >= 2 ? pesos : [0.2, 0.3, 0.5],
-        alpha: Number(document.getElementById("p-alpha")?.value || 0.35),
-        beta: Number(document.getElementById("p-beta")?.value || 0.15),
-        horizonte_h: Number(document.getElementById("p-horizonte")?.value || 3),
-        periodo_estacional: Number(document.getElementById("p-periodo-l")?.value || 4),
-      };
+      if (sub === "series_tiempo") {
+        const submetodo_ts = document.getElementById("p-ts-sub")?.value || "SES";
+        const horizonte_h = this._readNumber("p-horizonte", "Horizonte futuro (h)", {
+          min: 1,
+          max: 48,
+          integer: true,
+        });
+        const alpha = this._readNumber("p-alpha", "Nivel α", { positive: true, max: 1 });
+        const beta = this._readNumber("p-beta", "Tendencia β", { min: 0, max: 1 });
+        const ventana_k = this._readNumber("p-ventana-k", "Ventana k (PMS)", {
+          min: 1,
+          max: 30,
+          integer: true,
+        });
+        const periodo_estacional = this._readNumber("p-periodo-l", "Ciclo L", {
+          min: 2,
+          max: 24,
+          integer: true,
+        });
+
+        const pesosRaw = (document.getElementById("p-pesos")?.value || "").trim();
+        const pesos = pesosRaw
+          .split(",")
+          .map((s) => s.trim())
+          .filter((s) => s !== "")
+          .map(Number);
+
+        if (submetodo_ts === "PMP" && (pesos.length < 2 || pesos.some((p) => !Number.isFinite(p) || p < 0))) {
+          throw new Error("En PMP ingresa al menos 2 pesos numéricos no negativos separados por coma.");
+        }
+
+        return {
+          metodo: "series_tiempo",
+          x_vals,
+          y_vals,
+          x_eval: 0,
+          submetodo_ts,
+          ventana_k,
+          pesos: pesos.length >= 2 ? pesos : [0.2, 0.3, 0.5],
+          alpha,
+          beta,
+          horizonte_h,
+          periodo_estacional,
+        };
+      }
+
+      const x_eval = this._readNumber("p-xeval", "Valor a proyectar (x_eval)");
+      const grado =
+        sub === "polinomial" || sub === "comparar"
+          ? this._readNumber("p-grado", "Grado polinomio (m)", { min: 1, max: 10, integer: true })
+          : 2;
+
+      if (sub === "polinomial" && x_vals.length < grado + 1) {
+        throw new Error(`Para grado ${grado} se necesitan al menos ${grado + 1} puntos.`);
+      }
+      if (sub === "exponencial" && y_vals.some((y) => y <= 0)) {
+        throw new Error("El modelo exponencial requiere que todos los valores yᵢ sean mayores que 0.");
+      }
+      if (sub === "potencial" && (x_vals.some((x) => x <= 0) || y_vals.some((y) => y <= 0) || x_eval <= 0)) {
+        throw new Error("El modelo potencial requiere xᵢ > 0, yᵢ > 0 y x_eval > 0.");
+      }
+      if (sub === "logaritmica" && (x_vals.some((x) => x <= 0) || x_eval <= 0)) {
+        throw new Error("El modelo logarítmico requiere xᵢ > 0 y x_eval > 0.");
+      }
+
+      return { metodo: sub, x_vals, y_vals, x_eval, grado };
     }
 
     return {};
   }
 
   async executeActiveMethod() {
-    const payload = this._collectPayload();
+    this._clearFormError();
+    let payload;
+    try {
+      payload = this._collectPayload();
+    } catch (validationErr) {
+      this._showFormError(validationErr.message);
+      return;
+    }
+
     window.MNU411.display?.setMessage("Procesando método...");
 
     try {
       const res = await window.MNU411.api.solveModule(this.currentModule, payload);
 
-      // Extraer el valor principal para pantalla LCD y Ans
       const mainVal =
         res.raiz ??
         res.resultado ??
@@ -9793,7 +9619,6 @@ class ModulesUIController {
       window.MNU411.display?.setResult(mainVal, typeof mainVal === "number");
       window.MNU411.display?.setMessage("Cálculo completado");
 
-      // Renderizar procedimiento y tablas
       this._renderResultsView(payload, res);
       window.MNU411.display?.saveHistory(
         window.MNU411.display?.getLatex() || `${this.currentModule} (${this.currentSubtema})`,
@@ -9808,10 +9633,8 @@ class ModulesUIController {
         window.MNU411.keypad?.openWorkstation("results", false);
       }
 
-      // Actualizar gráfica en GeoGebra
       window.MNU411.geogebra?.plotModuleResult(this.currentModule, this.currentSubtema, payload, res);
 
-      // Preparar payload exacto para /api/m4/pdf
       this.lastPdfPayload = {
         titulo_metodo: res.metodo || `${this.currentModule} - ${this.currentSubtema}`,
         entradas_dict: payload,
@@ -9827,7 +9650,7 @@ class ModulesUIController {
       };
       if (this.pdfBtn) this.pdfBtn.disabled = false;
     } catch (err) {
-      window.MNU411.display?.setMessage(err.message, true);
+      this._showFormError(err.message);
     }
   }
 
@@ -9895,28 +9718,23 @@ class ModulesUIController {
     });
     html += `</div>`;
 
-    // Tabla de iteraciones (M2, M3 iterativos, M5 Newton/Lagrange)
     if (Array.isArray(res.iteraciones) && res.iteraciones.length > 0) {
       html += this._buildGenericTableHtml("Tabla de Iteraciones / Desglose", res.iteraciones);
     }
 
-    // Tabla de términos polinomiales (M5 Newton Adelante / Atrás)
     if (Array.isArray(res.terminos) && res.terminos.length > 0) {
       html += this._buildGenericTableHtml("Aporte por Orden Polinomial", res.terminos);
     }
 
-    // Ranking comparativo (M6 comparar)
     if (Array.isArray(res.ranking) && res.ranking.length > 0) {
       const cleanRanking = res.ranking.map(({ detalle, ecuacion_latex, ...rest }) => rest);
       html += this._buildGenericTableHtml("Ranking de Modelos por R²", cleanRanking);
     }
 
-    // Tramos lineales (M5 lineal)
     if (Array.isArray(res.segmentos) && res.segmentos.length > 0) {
       html += this._buildGenericTableHtml("Ecuaciones por Tramo", res.segmentos);
     }
 
-    // Reducción matricial paso a paso (M3 Gauss / Gauss-Jordan)
     if (Array.isArray(res.pasos_matriz) && res.pasos_matriz.length > 0) {
       html += `<h3 class="res-subtitle">Reducción Matricial Paso a Paso</h3>`;
       res.pasos_matriz.forEach((pm) => {
@@ -9937,7 +9755,6 @@ class ModulesUIController {
       });
     }
 
-    // Tabla de diferencias divididas (M5)
     if (Array.isArray(res.tabla_diferencias) && res.tabla_diferencias.length > 0) {
       const matRows = res.tabla_diferencias
         .map(
@@ -9955,7 +9772,6 @@ class ModulesUIController {
       `;
     }
 
-    // Detalles derivadas parciales (M1 propagación)
     if (Array.isArray(res.detalles) && res.detalles.length > 0) {
       html += this._buildGenericTableHtml("Aporte por Derivada Parcial", res.detalles);
     }
@@ -10001,6 +9817,7 @@ window.MNU411 = window.MNU411 || {};
 window.addEventListener("DOMContentLoaded", () => {
   window.MNU411.modulesUI = new ModulesUIController();
 });
+
 ]]></archivo>
   <archivo ruta="frontend/icons/icon.svg"><![CDATA[<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <rect width="512" height="512" rx="104" fill="#1e2533" />
@@ -10052,8 +9869,9 @@ window.addEventListener("DOMContentLoaded", () => {
   ]
 }
 ]]></archivo>
-  <archivo ruta="frontend/sw.js"><![CDATA[const CACHE_STATIC = "mnu411-static-v1";
-const CACHE_CDN = "mnu411-cdn-v1";
+  <archivo ruta="frontend/sw.js"><![CDATA[
+const CACHE_STATIC = "mnu411-static-v2";
+const CACHE_CDN = "mnu411-cdn-v2";
 
 const APP_SHELL = [
   "/",
@@ -10110,7 +9928,7 @@ self.addEventListener("fetch", (event) => {
           new Response(
             JSON.stringify({
               detail:
-                "Sin conexión con el servidor Python. Verifica tu red para ejecutar cálculos."
+                "Sin conexión con el servidor Python. Verifica que uvicorn esté encendido."
             }),
             {
               status: 503,
@@ -10122,8 +9940,8 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // 2. Recursos CDN (KaTeX, MathLive y fuentes matemáticas) -> Cache-First
-  if (url.hostname.includes("jsdelivr.net")) {
+  // 2. Recursos CDN (KaTeX, MathLive, GeoGebra) -> Cache-First
+  if (url.hostname.includes("jsdelivr.net") || url.hostname.includes("geogebra.org")) {
     event.respondWith(
       caches.open(CACHE_CDN).then(async (cache) => {
         const cached = await cache.match(request);
@@ -10140,31 +9958,28 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // 3. Archivos locales de la calculadora (App Shell) -> Stale-While-Revalidate
+  // 3. Archivos locales de la calculadora -> Network-First (siempre toma tus últimos cambios)
   if (url.origin === self.location.origin) {
     event.respondWith(
       caches.open(CACHE_STATIC).then(async (cache) => {
-        const cached = await cache.match(request);
-        const networkPromise = fetch(request)
-          .then((fresh) => {
-            if (fresh && fresh.ok) {
-              cache.put(request, fresh.clone());
-            }
-            return fresh;
-          })
-          .catch(() => null);
-
-        if (cached) return cached;
-        const networkResp = await networkPromise;
-        if (networkResp) return networkResp;
-
-        if (request.mode === "navigate") {
-          return cache.match("/index.html");
+        try {
+          const fresh = await fetch(request);
+          if (fresh && fresh.ok) {
+            cache.put(request, fresh.clone());
+          }
+          return fresh;
+        } catch (_) {
+          const cached = await cache.match(request);
+          if (cached) return cached;
+          if (request.mode === "navigate") {
+            return cache.match("/index.html");
+          }
+          return new Response("Recurso no disponible offline", { status: 504 });
         }
-        return new Response("Recurso no disponible offline", { status: 504 });
       })
     );
   }
 });
+
 ]]></archivo>
 </especificador>
