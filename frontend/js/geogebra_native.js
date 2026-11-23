@@ -16,12 +16,32 @@ class GeoGebraNativeController {
     document.querySelectorAll('.ws-tab[data-ws-tab="geogebra"]').forEach((tab) => {
       tab.addEventListener("click", () => {
         this.ensureInitialized();
+        setTimeout(() => this.resizeToContainer(), 50);
       });
     });
 
     document.getElementById("key-ggb")?.addEventListener("click", () => {
       this.ensureInitialized();
+      setTimeout(() => this.resizeToContainer(), 50);
     });
+
+    window.addEventListener("resize", () => this.resizeToContainer());
+  }
+
+  _getTargetWidth(container) {
+    const bodyEl = container.closest(".ws-body");
+    const rawWidth = container.clientWidth || bodyEl?.clientWidth || window.innerWidth - 40;
+    return Math.max(320, Math.min(rawWidth - 24, 860));
+  }
+
+  resizeToContainer() {
+    if (!this.applet || !this.isReady) return;
+    const container = document.getElementById(this.containerId);
+    if (!container) return;
+    const width = this._getTargetWidth(container);
+    if (typeof this.applet.setSize === "function") {
+      this.applet.setSize(width, 430);
+    }
   }
 
   ensureInitialized() {
@@ -31,9 +51,10 @@ class GeoGebraNativeController {
     if (!container) return;
     container.innerHTML = "";
 
-    const width = Math.max(320, Math.min(container.clientWidth - 16, 840));
+    const width = this._getTargetWidth(container);
     const params = {
       appName: "graphing",
+      perspective: "G",
       width,
       height: 430,
       showToolBar: true,
@@ -46,6 +67,7 @@ class GeoGebraNativeController {
       appletOnLoad: (api) => {
         this.applet = api;
         this.isReady = true;
+        this.resizeToContainer();
         if (this.pendingTask) {
           const task = this.pendingTask;
           this.pendingTask = null;
@@ -57,7 +79,6 @@ class GeoGebraNativeController {
     const ggbApp = new window.GGBApplet(params, true);
     ggbApp.inject(this.containerId);
   }
-
   plotModuleResult(moduleCode, subtema, payload, result) {
     this.ensureInitialized();
 
