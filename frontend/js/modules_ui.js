@@ -794,7 +794,7 @@ class ModulesUIController {
         const submetodo_ts = document.getElementById("p-ts-sub")?.value || "SES";
         const horizonte_h = this._readNumber("p-horizonte", "Horizonte futuro (h)", {
           min: 1,
-          max: 48,
+          max: 120,
           integer: true,
         });
         const alpha = this._readNumber("p-alpha", "Nivel α", { positive: true, max: 1 });
@@ -1072,11 +1072,16 @@ class ModulesUIController {
     }
 
     if (Array.isArray(res.tabla_diferencias) && res.tabla_diferencias.length > 0) {
+      const nPts = res.tabla_diferencias.length;
       const matRows = res.tabla_diferencias
         .map(
           (row, idx) =>
             `<tr><td>${res.x[idx]}</td>${row
-              .map((val) => `<td>${Number(val).toFixed(6)}</td>`)
+              .map((val, colIdx) =>
+                colIdx >= nPts - idx
+                  ? `<td>—</td>`
+                  : `<td>${Number(val).toFixed(6)}</td>`
+              )
               .join("")}</tr>`
         )
         .join("");
@@ -1086,6 +1091,27 @@ class ModulesUIController {
           <table class="results-iter-table"><tbody>${matRows}</tbody></table>
         </div>
       `;
+    }
+
+    if (Array.isArray(res.pasos) && res.pasos.length > 0) {
+      const pasosLi = res.pasos
+        .map(
+          (p) =>
+            `<li><code>${p.formula}</code> = <strong>${Number(p.valor).toFixed(6)}</strong></li>`
+        )
+        .join("");
+      html += `
+        <h3 class="res-subtitle">Desarrollo Paso a Paso (Diferencias Divididas)</h3>
+        <ol class="res-steps-list">${pasosLi}</ol>
+      `;
+    }
+
+    if (Array.isArray(res.t_futuro) && Array.isArray(res.pronosticos_futuros)) {
+      const futRows = res.t_futuro.map((tf, idx) => ({
+        "Periodo (t)": tf,
+        "Pronóstico ŷ_t": res.pronosticos_futuros[idx],
+      }));
+      html += this._buildGenericTableHtml("Tabla de Pronósticos Futuros", futRows);
     }
 
     if (Array.isArray(res.detalles) && res.detalles.length > 0) {

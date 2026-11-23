@@ -219,10 +219,14 @@ class InterpolacionEngine:
         for i in range(n):
             numerador = 1.0
             denominador = 1.0
+            num_terms = []
+            den_terms = []
             for j in range(n):
                 if i != j:
                     numerador *= (xp - x[j])
                     denominador *= (x[i] - x[j])
+                    num_terms.append(f"({xp:g} - ({x[j]:g}))")
+                    den_terms.append(f"({x[i]:g} - ({x[j]:g}))")
 
             li = numerador / denominador
             aporte = li * float(y[i])
@@ -233,6 +237,7 @@ class InterpolacionEngine:
                     "i": i,
                     "x_i": round(float(x[i]), 6),
                     "f(x_i)": round(float(y[i]), 6),
+                    "Fórmula L_i": f"[{'·'.join(num_terms)}] / [{'·'.join(den_terms)}]",
                     "L_i(x)": round(float(li), 6),
                     "L_i(x)*f_i": round(float(aporte), 6),
                 }
@@ -364,7 +369,15 @@ def interpolacion_diferencias_divididas(x_vals, y_vals, x_eval: float) -> dict:
         termino_prod = termino_prod * (x_sym - sp.Float(x[j - 1], 10))
         poli_newton_expr += sp.Float(coeficientes[j], 10) * termino_prod
 
-    poli_expandido_expr = sp.expand(poli_newton_expr)
+    poli_expandido_raw = sp.expand(poli_newton_expr)
+    poly_obj = sp.Poly(poli_expandido_raw, x_sym)
+    poli_expandido_expr = sum(
+        sp.Float(round(float(coef), 8), 8) * (x_sym ** deg)
+        for (deg,), coef in poly_obj.terms()
+        if abs(float(coef)) > 1e-12
+    )
+    if poli_expandido_expr == 0:
+        poli_expandido_expr = sp.Float(0.0, 4)
 
     # Detección de interpolación vs extrapolación
     x_min, x_max = float(np.min(x)), float(np.max(x))

@@ -310,6 +310,7 @@ class ErroresEngine:
         }]]></archivo>
   <archivo ruta="engine/interpolacion.py"><![CDATA[import math
 import numpy as np
+import sympy as sp
 
 
 class InterpolacionEngine:
@@ -528,10 +529,14 @@ class InterpolacionEngine:
         for i in range(n):
             numerador = 1.0
             denominador = 1.0
+            num_terms = []
+            den_terms = []
             for j in range(n):
                 if i != j:
                     numerador *= (xp - x[j])
                     denominador *= (x[i] - x[j])
+                    num_terms.append(f"({xp:g} - ({x[j]:g}))")
+                    den_terms.append(f"({x[i]:g} - ({x[j]:g}))")
 
             li = numerador / denominador
             aporte = li * float(y[i])
@@ -542,21 +547,49 @@ class InterpolacionEngine:
                     "i": i,
                     "x_i": round(float(x[i]), 6),
                     "f(x_i)": round(float(y[i]), 6),
+                    "Fórmula L_i": f"[{'·'.join(num_terms)}] / [{'·'.join(den_terms)}]",
                     "L_i(x)": round(float(li), 6),
                     "L_i(x)*f_i": round(float(aporte), 6),
                 }
             )
 
+        # Construcción simbólica del polinomio de Lagrange y su forma expandida
+        x_sym = sp.Symbol("x")
+        poli_lagrange_expr = sp.Integer(0)
+        for i in range(n):
+            li_sym = sp.Integer(1)
+            for j in range(n):
+                if i != j:
+                    li_sym *= (x_sym - sp.Float(float(x[j]), 10)) / sp.Float(
+                        float(x[i] - x[j]), 10
+                    )
+            poli_lagrange_expr += sp.Float(float(y[i]), 10) * li_sym
+
+        poli_expandido_raw = sp.expand(poli_lagrange_expr)
+        poly_obj = sp.Poly(poli_expandido_raw, x_sym)
+        poli_expandido_expr = sum(
+            sp.Float(round(float(coef), 8), 8) * (x_sym ** deg)
+            for (deg,), coef in poly_obj.terms()
+            if abs(float(coef)) > 1e-12
+        )
+        if poli_expandido_expr == 0:
+            poli_expandido_expr = sp.Float(0.0, 4)
+
+        x_min, x_max = float(np.min(x)), float(np.max(x))
+
         return {
             "metodo": "Polinomio de Aproximación de Lagrange",
             "solucion": round(resultado, 6),
             "x": xp,
+            "x_eval": xp,
+            "rango_x": [x_min, x_max],
+            "es_extrapolacion": es_extrapolacion,
             "tipo_evaluacion": "Extrapolación" if es_extrapolacion else "Interpolación",
+            "polinomio_latex": sp.latex(poli_lagrange_expr),
+            "polinomio_expandido_latex": sp.latex(poli_expandido_expr),
+            "polinomio_geogebra": str(poli_expandido_expr).replace("**", "^"),
             "iteraciones": desglose,
         }
-import numpy as np
-import sympy as sp
-
 
 def _validar_puntos_interpolacion(x_vals, y_vals, min_puntos: int = 2):
     """
@@ -646,7 +679,15 @@ def interpolacion_diferencias_divididas(x_vals, y_vals, x_eval: float) -> dict:
         termino_prod = termino_prod * (x_sym - sp.Float(x[j - 1], 10))
         poli_newton_expr += sp.Float(coeficientes[j], 10) * termino_prod
 
-    poli_expandido_expr = sp.expand(poli_newton_expr)
+    poli_expandido_raw = sp.expand(poli_newton_expr)
+    poly_obj = sp.Poly(poli_expandido_raw, x_sym)
+    poli_expandido_expr = sum(
+        sp.Float(round(float(coef), 8), 8) * (x_sym ** deg)
+        for (deg,), coef in poly_obj.terms()
+        if abs(float(coef)) > 1e-12
+    )
+    if poli_expandido_expr == 0:
+        poli_expandido_expr = sp.Float(0.0, 4)
 
     # Detección de interpolación vs extrapolación
     x_min, x_max = float(np.min(x)), float(np.max(x))
@@ -5968,8 +6009,7 @@ def render_tab_proyecciones():
 ]]></archivo>
 <archivo ruta="api/__init__.py"><![CDATA["""Capa de servicio REST y traducción simbólica LaTeX -> SymPy para MNU411."""
 ]]></archivo>
-<archivo ruta="api/latex_parser.py"><![CDATA[
-import re
+<archivo ruta="api/latex_parser.py"><![CDATA[import re
 import sympy as sp
 from sympy.parsing.sympy_parser import (
     convert_xor,
@@ -6225,7 +6265,6 @@ def evaluar_escalar_latex(latex_str: str, ans_val: float | None = None) -> dict:
         "sympy_str": info["sympy_str"],
         "latex_normalizado": info["latex_normalizado"],
     }
-
 ]]></archivo>
 <archivo ruta="api/schemas.py"><![CDATA[#api/schemas.py
 from typing import Any, Literal
@@ -6337,7 +6376,7 @@ class Modulo6ProyeccionesRequest(BaseModel):
     pesos: list[float] | None = None
     alpha: float = Field(default=0.35, gt=0.0, le=1.0)
     beta: float = Field(default=0.15, ge=0.0, le=1.0)
-    horizonte_h: int = Field(default=3, ge=1, le=48)
+    horizonte_h: int = Field(default=3, ge=1, le=120)
     periodo_estacional: int = Field(default=4, ge=2, le=24)
 
 
@@ -8099,11 +8138,15 @@ window.MNU411.api = new MNU411ApiClient();
 class MathDisplayController {
   constructor() {
     this.mf = document.getElementById("math-display");
+    this.fallbackEl = document.getElementById("math-katex-fallback");
     this.promptEl = document.getElementById("lcd-prompt-label");
     this.msgEl = document.getElementById("lcd-message");
     this.resultEl = document.getElementById("lcd-result");
     this.ansBadgeEl = document.getElementById("ans-badge");
     this.varBarEl = document.getElementById("var-quick-bar");
+
+    this.latexBuffer = "";
+    this.mathliveReady = false;
 
     this.ansValue = this._loadAns();
     this.history = JSON.parse(localStorage.getItem("mnu411_history") || "[]");
@@ -8130,7 +8173,26 @@ class MathDisplayController {
   }
 
   _initMathField() {
+    this._renderFallback();
     if (!this.mf) return;
+
+    if (window.customElements && typeof window.customElements.whenDefined === "function") {
+      window.customElements.whenDefined("math-field").then(() => {
+        this._upgradeMathField();
+      });
+    } else if (window.MathfieldElement) {
+      this._upgradeMathField();
+    }
+  }
+
+  _upgradeMathField() {
+    if (!this.mf || this.mathliveReady) return;
+
+    if (window.MathfieldElement) {
+      window.MathfieldElement.fontsDirectory =
+        "https://cdn.jsdelivr.net/npm/mathlive@0.101.0/dist/fonts";
+      window.MathfieldElement.soundsDirectory = null;
+    }
 
     // Bloquear teclado virtual nativo del teléfono (solo teclado científico Casio)
     if (window.mathVirtualKeyboard) {
@@ -8141,7 +8203,10 @@ class MathDisplayController {
     this.mf.smartMode = false;
     this.mf.mode = "math";
 
-    // Evitar atajos de teclado crudos que muestren barras '\' al usuario
+    this.mf.addEventListener("input", () => {
+      this.latexBuffer = this.mf.getValue("latex") || "";
+    });
+
     this.mf.addEventListener("focus", () => {
       if (window.mathVirtualKeyboard) {
         window.mathVirtualKeyboard.hide();
@@ -8164,24 +8229,75 @@ class MathDisplayController {
         this.insertLatex("\\frac{#@}{#?}");
       }
     });
+
+    if (this.latexBuffer) {
+      this.mf.setValue(this.latexBuffer);
+    }
+
+    // Activar MathLive solo si el Shadow DOM montó correctamente
+    if (this.mf.shadowRoot) {
+      this.mathliveReady = true;
+      this.mf.classList.remove("hidden");
+      this.fallbackEl?.classList.add("hidden");
+    }
+  }
+
+  _renderFallback() {
+    if (this.mathliveReady || !this.fallbackEl) return;
+
+    if (!window.katex) {
+      setTimeout(() => this._renderFallback(), 60);
+      return;
+    }
+
+    const visualTex = (this.latexBuffer || "").replace(/#@|#\?/g, "\\square");
+    this.fallbackEl.innerHTML = "";
+    const mathSpan = document.createElement("span");
+    try {
+      window.katex.render(visualTex || "\\color{#5c6b57}{0}", mathSpan, {
+        throwOnError: false,
+        displayMode: false,
+      });
+    } catch (_) {
+      mathSpan.textContent = visualTex || "0";
+    }
+
+    const cursor = document.createElement("span");
+    cursor.className = "lcd-cursor";
+    this.fallbackEl.appendChild(mathSpan);
+    this.fallbackEl.appendChild(cursor);
   }
 
   /**
    * Inserta una plantilla LaTeX visual con cuadros editables (#@ / #?)
    */
   insertLatex(latexSnippet) {
-    if (!this.mf) return;
-    this.mf.focus({ preventScroll: true });
-    if (this.mf.mode !== "math") {
-      this.mf.mode = "math";
-    }
-
-    // Si el usuario pulsa potencia (x² o □^□) en una pantalla vacía, anteponer cuadro base
     const current = this.getLatex().trim();
-    if ((latexSnippet === "^{2}" || latexSnippet === "^{3}" || latexSnippet === "^{#?}") && current === "") {
-      this.mf.executeCommand(["insert", `{#?}${latexSnippet}`, { selectionMode: "placeholder" }]);
+    const isPower =
+      latexSnippet === "^{2}" || latexSnippet === "^{3}" || latexSnippet === "^{#?}";
+
+    if (this.mathliveReady && this.mf) {
+      this.mf.focus({ preventScroll: true });
+      if (this.mf.mode !== "math") {
+        this.mf.mode = "math";
+      }
+      if (isPower && current === "") {
+        this.mf.executeCommand(["insert", `{#?}${latexSnippet}`, { selectionMode: "placeholder" }]);
+      } else {
+        this.mf.executeCommand(["insert", latexSnippet, { selectionMode: "placeholder" }]);
+      }
+      this.latexBuffer = this.mf.getValue("latex") || "";
     } else {
-      this.mf.executeCommand(["insert", latexSnippet, { selectionMode: "placeholder" }]);
+      const normalized = latexSnippet.replace(/#@/g, "#?");
+      const prefix = isPower && this.latexBuffer === "" ? "{#?}" : "";
+      const token = `${prefix}${normalized}`;
+
+      if (this.latexBuffer.includes("#?") && !token.includes("#?")) {
+        this.latexBuffer = this.latexBuffer.replace("#?", token);
+      } else {
+        this.latexBuffer += token;
+      }
+      this._renderFallback();
     }
 
     this.setMessage("Editando expresión...");
@@ -8191,37 +8307,50 @@ class MathDisplayController {
    * Navegación con la cruceta REPLAY (◄ ▲ ▼ ►) por nodos y cuadros editables
    */
   navigate(direction) {
-    if (!this.mf) return;
-    this.mf.focus({ preventScroll: true });
+    if (this.mathliveReady && this.mf) {
+      this.mf.focus({ preventScroll: true });
 
-    const commandMap = {
-      left: "moveToPreviousChar",
-      right: "moveToNextChar",
-      up: "moveUp",
-      down: "moveDown",
-    };
+      const commandMap = {
+        left: "moveToPreviousChar",
+        right: "moveToNextChar",
+        up: "moveUp",
+        down: "moveDown",
+      };
 
-    const beforePos = this.mf.position;
-    const cmd = commandMap[direction];
-    if (cmd) {
-      this.mf.executeCommand(cmd);
+      const beforePos = this.mf.position;
+      const cmd = commandMap[direction];
+      if (cmd) {
+        this.mf.executeCommand(cmd);
+      }
+
+      if (
+        (direction === "up" || direction === "down") &&
+        this.mf.position === beforePos &&
+        this.history.length > 0
+      ) {
+        this._stepHistory(direction);
+      }
+      return;
     }
 
-    // Si ▲ o ▼ no movieron el cursor dentro de una fracción/potencia, recorrer historial
-    if ((direction === "up" || direction === "down") && this.mf.position === beforePos && this.history.length > 0) {
-      if (direction === "up" && this.historyIndex > 0) {
-        this.historyIndex -= 1;
-      } else if (direction === "down" && this.historyIndex < this.history.length - 1) {
-        this.historyIndex += 1;
-      } else {
-        return;
-      }
-      const item = this.history[this.historyIndex];
-      if (item) {
-        this.setLatex(item.latex);
-        this.setResult(item.result, false);
-        this.setMessage(`Historial (${this.historyIndex + 1}/${this.history.length})`);
-      }
+    if ((direction === "up" || direction === "down") && this.history.length > 0) {
+      this._stepHistory(direction);
+    }
+  }
+
+  _stepHistory(direction) {
+    if (direction === "up" && this.historyIndex > 0) {
+      this.historyIndex -= 1;
+    } else if (direction === "down" && this.historyIndex < this.history.length - 1) {
+      this.historyIndex += 1;
+    } else {
+      return;
+    }
+    const item = this.history[this.historyIndex];
+    if (item) {
+      this.setLatex(item.latex);
+      this.setResult(item.result, false);
+      this.setMessage(`Historial (${this.historyIndex + 1}/${this.history.length})`);
     }
   }
 
@@ -8237,30 +8366,47 @@ class MathDisplayController {
    * Borra el nodo o carácter anterior (DEL)
    */
   deleteBackward() {
-    if (!this.mf) return;
-    this.mf.focus({ preventScroll: true });
-    this.mf.executeCommand("deleteBackward");
+    if (this.mathliveReady && this.mf) {
+      this.mf.focus({ preventScroll: true });
+      this.mf.executeCommand("deleteBackward");
+      this.latexBuffer = this.mf.getValue("latex") || "";
+      return;
+    }
+
+    this.latexBuffer = this.latexBuffer
+      .replace(/(\\[a-zA-Z]+(?:\{[^}]*\})*|#[\?@]|.)$/, "");
+    this._renderFallback();
   }
 
   /**
    * Limpia toda la pantalla (AC)
    */
   clearAll() {
-    if (!this.mf) return;
-    this.mf.setValue("");
-    this.mf.focus({ preventScroll: true });
+    this.latexBuffer = "";
+    if (this.mathliveReady && this.mf) {
+      this.mf.setValue("");
+      this.mf.focus({ preventScroll: true });
+    } else {
+      this._renderFallback();
+    }
     this.setResult("0", false);
     this.setMessage("Pantalla limpia");
   }
 
   getLatex() {
-    if (!this.mf) return "";
-    return this.mf.getValue("latex") || "";
+    if (this.mathliveReady && this.mf) {
+      return this.mf.getValue("latex") || "";
+    }
+    return this.latexBuffer.replace(/#@|#\?/g, "\\placeholder{}");
   }
 
   setLatex(latexStr) {
-    if (!this.mf) return;
-    this.mf.setValue(latexStr || "");
+    this.latexBuffer = latexStr || "";
+    if (this.mathliveReady && this.mf) {
+      this.mf.setValue(this.latexBuffer);
+    } else {
+      this._renderFallback();
+    }
   }
 
   setPrompt(label) {
@@ -8764,7 +8910,6 @@ window.addEventListener("DOMContentLoaded", () => {
 ]]></archivo>
 
 <archivo ruta="frontend/js/modules_ui.js"><![CDATA[/**
-/**
  * MNU411 v2.0 — Controlador de Subtemas, Validación de Entradas y Resultados (M1–M6)
  * Alineado con api/schemas.py y api/main.py
  */
@@ -9560,7 +9705,7 @@ class ModulesUIController {
         const submetodo_ts = document.getElementById("p-ts-sub")?.value || "SES";
         const horizonte_h = this._readNumber("p-horizonte", "Horizonte futuro (h)", {
           min: 1,
-          max: 48,
+          max: 120,
           integer: true,
         });
         const alpha = this._readNumber("p-alpha", "Nivel α", { positive: true, max: 1 });
@@ -9627,7 +9772,7 @@ class ModulesUIController {
     return {};
   }
 
-  async executeActiveMethod() {
+  async executeActiveMethod(keepPanelOpen = false) {
     this._clearFormError();
     let payload;
     try {
@@ -9662,8 +9807,8 @@ class ModulesUIController {
         mainVal
       );
 
-      // En móvil cerrar hoja para ver el resultado en la pantalla LCD; en PC mostrar pestaña resultados
-      if (window.innerWidth < 768) {
+      // En móvil cerrar hoja salvo recálculo rápido dentro de resultados; en PC mostrar pestaña resultados
+      if (window.innerWidth < 768 && !keepPanelOpen) {
         document.getElementById("workstation-panel")?.classList.remove("mobile-open");
         window.MNU411.display?.setMessage("Listo · Toca GGB/PDF para ver tabla");
       } else {
@@ -9703,9 +9848,54 @@ class ModulesUIController {
     if (res.fd2_latex) {
       html += `<div class="res-math-row"><strong>2.ª Derivada:</strong> <span class="katex-render" data-tex="f''(x) = ${res.fd2_latex}"></span></div>`;
     }
-    if (res.polinomio_latex || res.polinomio_expandido_latex) {
+    if (
+      res.polinomio_latex &&
+      res.polinomio_expandido_latex &&
+      res.polinomio_latex !== res.polinomio_expandido_latex
+    ) {
+      html += `<div class="res-math-row"><strong>Polinomio de Lagrange:</strong> <span class="katex-render" data-tex="P(x) = ${res.polinomio_latex}"></span></div>`;
+      html += `<div class="res-math-row"><strong>Polinomio Expandido:</strong> <span class="katex-render" data-tex="P(x) = ${res.polinomio_expandido_latex}"></span></div>`;
+    } else if (res.polinomio_latex || res.polinomio_expandido_latex) {
       const tex = res.polinomio_expandido_latex || res.polinomio_latex;
       html += `<div class="res-math-row"><strong>Polinomio:</strong> <span class="katex-render" data-tex="P(x) = ${tex}"></span></div>`;
+    }
+
+    if (this.currentModule === "M5" && Array.isArray(payload.x_vals)) {
+      const xMin = Math.min(...payload.x_vals);
+      const xMax = Math.max(...payload.x_vals);
+      const step =
+        payload.x_vals.length > 1
+          ? Math.abs(payload.x_vals[1] - payload.x_vals[0]) || 1
+          : 1;
+      const xLeft = Number((xMin - step).toPrecision(6));
+      const xRight = Number((xMax + step).toPrecision(6));
+
+      html += `
+        <div class="m5-extrapolate-bar" style="margin-top:8px; padding:10px 12px; background:#f0fdf4; border:1px solid #86efac; border-radius:10px;">
+          <div style="font-size:0.78rem; font-weight:800; color:#166534; margin-bottom:6px;">
+            ⚡ Extrapolar / Evaluar en otro x* (Rango nodal: [${xMin}, ${xMax}]):
+          </div>
+          <div style="display:flex; flex-wrap:wrap; gap:6px; align-items:center;">
+            <input
+              type="number"
+              id="quick-xeval-input"
+              step="any"
+              value="${payload.x_eval}"
+              aria-label="Nuevo valor x* a evaluar"
+              style="flex:1; min-width:95px; padding:6px 9px; border:1px solid #86efac; border-radius:7px; font-size:0.88rem; font-weight:700; background:#ffffff; color:#0f172a;"
+            />
+            <button type="button" class="btn-secondary-sm quick-xeval-chip" data-x="${xLeft}">
+              x* = ${xLeft}
+            </button>
+            <button type="button" class="btn-secondary-sm quick-xeval-chip" data-x="${xRight}">
+              x* = ${xRight}
+            </button>
+            <button type="button" id="btn-quick-extrapolate" class="btn-primary-run" style="margin-left:0; padding:7px 12px; font-size:0.8rem;">
+              Extrapolar
+            </button>
+          </div>
+        </div>
+      `;
     }
     if (res.ecuacion_latex) {
       html += `<div class="res-math-row"><strong>Modelo ajustado:</strong> <span class="katex-render" data-tex="${res.ecuacion_latex}"></span></div>`;
@@ -9793,11 +9983,16 @@ class ModulesUIController {
     }
 
     if (Array.isArray(res.tabla_diferencias) && res.tabla_diferencias.length > 0) {
+      const nPts = res.tabla_diferencias.length;
       const matRows = res.tabla_diferencias
         .map(
           (row, idx) =>
             `<tr><td>${res.x[idx]}</td>${row
-              .map((val) => `<td>${Number(val).toFixed(6)}</td>`)
+              .map((val, colIdx) =>
+                colIdx >= nPts - idx
+                  ? `<td>—</td>`
+                  : `<td>${Number(val).toFixed(6)}</td>`
+              )
               .join("")}</tr>`
         )
         .join("");
@@ -9809,6 +10004,27 @@ class ModulesUIController {
       `;
     }
 
+    if (Array.isArray(res.pasos) && res.pasos.length > 0) {
+      const pasosLi = res.pasos
+        .map(
+          (p) =>
+            `<li><code>${p.formula}</code> = <strong>${Number(p.valor).toFixed(6)}</strong></li>`
+        )
+        .join("");
+      html += `
+        <h3 class="res-subtitle">Desarrollo Paso a Paso (Diferencias Divididas)</h3>
+        <ol class="res-steps-list">${pasosLi}</ol>
+      `;
+    }
+
+    if (Array.isArray(res.t_futuro) && Array.isArray(res.pronosticos_futuros)) {
+      const futRows = res.t_futuro.map((tf, idx) => ({
+        "Periodo (t)": tf,
+        "Pronóstico ŷ_t": res.pronosticos_futuros[idx],
+      }));
+      html += this._buildGenericTableHtml("Tabla de Pronósticos Futuros", futRows);
+    }
+
     if (Array.isArray(res.detalles) && res.detalles.length > 0) {
       html += this._buildGenericTableHtml("Aporte por Derivada Parcial", res.detalles);
     }
@@ -9818,6 +10034,50 @@ class ModulesUIController {
     if (window.katex) {
       this.resultsContainer.querySelectorAll(".katex-render").forEach((el) => {
         window.katex.render(el.getAttribute("data-tex") || "", el, { throwOnError: false });
+      });
+    }
+
+    if (this.currentModule === "M5") {
+      const runQuickX = (rawVal) => {
+        const nextX = Number(String(rawVal ?? "").trim());
+        if (!Number.isFinite(nextX)) {
+          this._showFormError('Ingresa un valor numérico válido en "x*".');
+          return;
+        }
+        const xMin = Math.min(...payload.x_vals);
+        const xMax = Math.max(...payload.x_vals);
+        if (
+          (this.currentSubtema === "newton_adelante" || this.currentSubtema === "newton_atras") &&
+          (nextX < xMin || nextX > xMax)
+        ) {
+          this.currentSubtema = "lagrange";
+          this.paramsContainer.querySelectorAll(".subtema-pill").forEach((pill) => {
+            pill.classList.toggle("active", pill.getAttribute("data-subtema") === "lagrange");
+          });
+        }
+        const formXInput = document.getElementById("p-xeval");
+        if (formXInput) formXInput.value = nextX;
+        this.executeActiveMethod(true);
+      };
+
+      this.resultsContainer.querySelectorAll(".quick-xeval-chip").forEach((chip) => {
+        chip.addEventListener("click", () => {
+          const val = chip.getAttribute("data-x");
+          const inp = document.getElementById("quick-xeval-input");
+          if (inp) inp.value = val;
+          runQuickX(val);
+        });
+      });
+
+      document.getElementById("btn-quick-extrapolate")?.addEventListener("click", () => {
+        runQuickX(document.getElementById("quick-xeval-input")?.value);
+      });
+
+      document.getElementById("quick-xeval-input")?.addEventListener("keydown", (ev) => {
+        if (ev.key === "Enter") {
+          ev.preventDefault();
+          runQuickX(ev.target.value);
+        }
       });
     }
   }
@@ -9854,7 +10114,6 @@ window.MNU411 = window.MNU411 || {};
 window.addEventListener("DOMContentLoaded", () => {
   window.MNU411.modulesUI = new ModulesUIController();
 });
-
 ]]></archivo>
   <archivo ruta="frontend/icons/icon.svg"><![CDATA[<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <rect width="512" height="512" rx="104" fill="#1e2533" />
@@ -9906,8 +10165,7 @@ window.addEventListener("DOMContentLoaded", () => {
   ]
 }
 ]]></archivo>
-  <archivo ruta="frontend/sw.js"><![CDATA[
-const CACHE_STATIC = "mnu411-static-v2";
+  <archivo ruta="frontend/sw.js"><![CDATA[const CACHE_STATIC = "mnu411-static-v2";
 const CACHE_CDN = "mnu411-cdn-v2";
 
 const APP_SHELL = [
@@ -10017,6 +10275,396 @@ self.addEventListener("fetch", (event) => {
     );
   }
 });
+]]></archivo>
+  <archivo ruta="api/main.py"><![CDATA[#api/main.py
+import math
+from pathlib import Path
+from typing import Any
 
+import numpy as np
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
+from fastapi.staticfiles import StaticFiles
+
+from api.latex_parser import (
+    LatexParseError,
+    evaluar_escalar_latex,
+    latex_a_sympy_info,
+)
+from api.schemas import (
+    Modulo1ErroresRequest,
+    Modulo2NoLinealesRequest,
+    Modulo3SistemasRequest,
+    Modulo5InterpolacionRequest,
+    Modulo6ProyeccionesRequest,
+    PDFExportRequest,
+    ParseLatexRequest,
+    ScalarCalcRequest,
+)
+from engine.errores import ErroresEngine
+from engine.interpolacion import (
+    InterpolacionEngine,
+    interpolacion_diferencias_divididas,
+    interpolacion_lineal,
+)
+from engine.no_lineales import NoLinealesEngine
+from engine.pdf_generator import PDFReportEngine
+from engine.proyecciones import (
+    comparar_modelos_proyeccion,
+    pronostico_series_tiempo,
+    regresion_exponencial,
+    regresion_lineal_simple,
+    regresion_logaritmica,
+    regresion_polinomial,
+    regresion_potencial,
+)
+from engine.sistemas_lineales import SistemasLinealesEngine
+
+app = FastAPI(
+    title="MNU411 API — Calculadora Científica de Métodos Numéricos",
+    description="Puente REST entre la interfaz PWA LaTeX y el motor matemático MNU411.",
+    version="2.0.0",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+def _sanitizar_json(obj: Any) -> Any:
+    """Convierte tipos NumPy y valores NaN/Inf a tipos nativos seguros para JSON."""
+    if isinstance(obj, dict):
+        return {str(k): _sanitizar_json(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_sanitizar_json(v) for v in obj]
+    if isinstance(obj, np.ndarray):
+        return _sanitizar_json(obj.tolist())
+    if isinstance(obj, (np.floating, float)):
+        val = float(obj)
+        return None if (math.isnan(val) or math.isinf(val)) else val
+    if isinstance(obj, (np.integer, int)):
+        return int(obj)
+    if isinstance(obj, (np.bool_, bool)):
+        return bool(obj)
+    return obj
+
+
+# =============================================================================
+# UTILIDADES DE TRADUCCIÓN LATEX Y CALCULADORA ESTÁNDAR
+# =============================================================================
+@app.get("/api/health")
+def health_check():
+    return {"status": "ok", "sistema": "MNU411 v2.0"}
+
+
+@app.post("/api/parse-latex")
+def api_parse_latex(req: ParseLatexRequest):
+    try:
+        info = latex_a_sympy_info(req.latex, ans_val=req.ans)
+        return {
+            "exito": True,
+            "sympy_str": info["sympy_str"],
+            "geogebra_str": info["geogebra_str"],
+            "latex_normalizado": info["latex_normalizado"],
+            "variables": info["variables"],
+        }
+    except LatexParseError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/calc/scalar")
+def api_calc_scalar(req: ScalarCalcRequest):
+    try:
+        res = evaluar_escalar_latex(req.latex, ans_val=req.ans)
+        return {"exito": True, **res}
+    except LatexParseError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# =============================================================================
+# MÓDULO 1: ANÁLISIS DE ERRORES
+# =============================================================================
+@app.post("/api/m1/errores")
+def api_modulo_1(req: Modulo1ErroresRequest):
+    try:
+        if req.tipo == "absoluto":
+            if req.x is None or req.x_bar is None:
+                raise ValueError("Se requieren 'x' y 'x_bar'.")
+            val = ErroresEngine.error_absoluto(req.x, req.x_bar)
+            return {"exito": True, "tipo": req.tipo, "resultado": val}
+
+        if req.tipo == "relativo":
+            if req.x is None or req.x_bar is None:
+                raise ValueError("Se requieren 'x' y 'x_bar'.")
+            val = ErroresEngine.error_relativo(req.x, req.x_bar)
+            return {"exito": True, "tipo": req.tipo, "resultado": val}
+
+        if req.tipo == "porcentual":
+            if req.x is None or req.x_bar is None:
+                raise ValueError("Se requieren 'x' y 'x_bar'.")
+            val = ErroresEngine.error_porcentual(req.x, req.x_bar)
+            return {"exito": True, "tipo": req.tipo, "resultado": val}
+
+        if req.tipo == "redondeo":
+            cota = ErroresEngine.cota_redondeo(req.d or 4)
+            resp = {"exito": True, "tipo": req.tipo, "cota_teorica": cota}
+            if req.x is not None and req.x_bar is not None:
+                ea = ErroresEngine.error_absoluto(req.x, req.x_bar)
+                resp["error_absoluto"] = ea
+                resp["cumple_cota"] = ea <= cota
+            return resp
+
+        if req.tipo == "taylor":
+            if not req.func_latex:
+                raise ValueError("Debe ingresar la función f(x) en pantalla.")
+            info = latex_a_sympy_info(req.func_latex)
+            res = ErroresEngine.error_truncamiento_taylor(
+                info["sympy_str"], req.x0 or 0.0, req.x_eval or 0.5, req.orden or 3
+            )
+            return _sanitizar_json(
+                {
+                    "exito": True,
+                    "tipo": req.tipo,
+                    "sympy_str": info["sympy_str"],
+                    "geogebra_str": info["geogebra_str"],
+                    "polinomio_latex": res["polinomio_latex"],
+                    "val_real": res["val_real"],
+                    "val_aprox": res["val_aprox"],
+                    "error_truncamiento": res["error_truncamiento"],
+                    "cota_teorica": res["cota_teorica"],
+                    "cumple_cota": res["cumple_cota"],
+                }
+            )
+
+        if req.tipo == "propagacion":
+            if not req.func_latex:
+                raise ValueError("Debe ingresar la función multivariable en pantalla.")
+            info = latex_a_sympy_info(req.func_latex)
+            valores = req.valores or {}
+            errores = req.errores or {}
+            faltantes = [v for v in info["variables"] if v not in valores or v not in errores]
+            if faltantes:
+                return {
+                    "exito": False,
+                    "requiere_variables": True,
+                    "variables": info["variables"],
+                    "mensaje": f"Ingrese valor y error para: {', '.join(faltantes)}",
+                }
+            res = ErroresEngine.propagacion_error(info["sympy_str"], valores, errores)
+            detalles_limpios = [
+                {
+                    "variable": d["variable"],
+                    "derivada_latex": d["derivada_latex"],
+                    "valor_evaluado": d["valor_evaluado"],
+                    "error_variable": d["error_variable"],
+                    "aporte_error": d["aporte_error"],
+                }
+                for d in res["detalles"]
+            ]
+            return _sanitizar_json(
+                {
+                    "exito": True,
+                    "tipo": req.tipo,
+                    "variables": info["variables"],
+                    "valor_nominal": res["valor_nominal"],
+                    "error_total": res["error_total"],
+                    "detalles": detalles_limpios,
+                    "resultado_intervalo": res["resultado_intervalo"],
+                }
+            )
+
+    except (LatexParseError, ValueError, ZeroDivisionError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error interno en Módulo 1: {e}")
+
+
+# =============================================================================
+# MÓDULO 2: ECUACIONES NO LINEALES
+# =============================================================================
+@app.post("/api/m2/no-lineales")
+def api_modulo_2(req: Modulo2NoLinealesRequest):
+    try:
+        info = latex_a_sympy_info(req.func_latex)
+        func_str = info["sympy_str"]
+
+        if req.metodo == "punto_fijo":
+            if req.x0 is None:
+                raise ValueError("Se requiere el valor inicial x₀.")
+            res = NoLinealesEngine.punto_fijo(func_str, req.x0, req.tol, req.max_iter)
+        elif req.metodo == "biseccion":
+            if req.a is None or req.b is None:
+                raise ValueError("Se requieren los extremos a y b.")
+            res = NoLinealesEngine.biseccion(func_str, req.a, req.b, req.tol, req.max_iter)
+        elif req.metodo == "regula_falsi":
+            if req.a is None or req.b is None:
+                raise ValueError("Se requieren los extremos a y b.")
+            res = NoLinealesEngine.regula_falsi(func_str, req.a, req.b, req.tol, req.max_iter)
+        elif req.metodo == "secante":
+            if req.x0 is None or req.x1 is None:
+                raise ValueError("Se requieren los dos puntos iniciales x₀ y x₁.")
+            res = NoLinealesEngine.secante(func_str, req.x0, req.x1, req.tol, req.max_iter)
+        elif req.metodo == "newton_1":
+            if req.x0 is None:
+                raise ValueError("Se requiere el valor inicial x₀.")
+            res = NoLinealesEngine.newton_raphson_1(func_str, req.x0, req.tol, req.max_iter)
+        else:
+            if req.x0 is None:
+                raise ValueError("Se requiere el valor inicial x₀.")
+            res = NoLinealesEngine.newton_raphson_2(func_str, req.x0, req.tol, req.max_iter)
+
+        res["exito"] = True
+        res["sympy_str"] = func_str
+        res["geogebra_str"] = info["geogebra_str"]
+        return _sanitizar_json(res)
+
+    except (LatexParseError, ValueError, ZeroDivisionError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error interno en Módulo 2: {e}")
+
+
+# =============================================================================
+# MÓDULO 3: SISTEMAS DE ECUACIONES LINEALES
+# =============================================================================
+@app.post("/api/m3/sistemas")
+def api_modulo_3(req: Modulo3SistemasRequest):
+    try:
+        if req.metodo == "gauss":
+            res = SistemasLinealesEngine.eliminacion_gaussiana(req.A, req.b)
+        elif req.metodo == "gauss_jordan":
+            res = SistemasLinealesEngine.gauss_jordan(req.A, req.b)
+        elif req.metodo == "jacobi":
+            res = SistemasLinealesEngine.jacobi(
+                req.A, req.b, req.x0, req.tol, req.max_iter, req.tipo_error
+            )
+        else:
+            res = SistemasLinealesEngine.gauss_seidel(
+                req.A, req.b, req.x0, req.tol, req.max_iter, req.tipo_error
+            )
+
+        res["exito"] = True
+        return _sanitizar_json(res)
+
+    except (ValueError, ZeroDivisionError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error interno en Módulo 3: {e}")
+
+
+# =============================================================================
+# MÓDULO 5: INTERPOLACIÓN FUNCIONAL
+# =============================================================================
+@app.post("/api/m5/interpolacion")
+def api_modulo_5(req: Modulo5InterpolacionRequest):
+    try:
+        if req.metodo in ("newton_adelante", "newton_atras", "lagrange"):
+            if req.metodo == "newton_adelante":
+                res = InterpolacionEngine.newton_adelante(req.x_vals, req.y_vals, req.x_eval)
+            elif req.metodo == "newton_atras":
+                res = InterpolacionEngine.newton_atras(req.x_vals, req.y_vals, req.x_eval)
+            else:
+                res = InterpolacionEngine.lagrange(req.x_vals, req.y_vals, req.x_eval)
+
+            # Adjuntar polinomio equivalente para GeoGebra
+            res_poli = interpolacion_diferencias_divididas(req.x_vals, req.y_vals, req.x_eval)
+            res["exito"] = True
+            res["resultado"] = res["solucion"]
+            res["polinomio_geogebra"] = (
+                res_poli["polinomio_geogebra"] if res_poli.get("exito") else None
+            )
+            res["polinomio_expandido_latex"] = (
+                res_poli["polinomio_expandido_latex"] if res_poli.get("exito") else None
+            )
+            return _sanitizar_json(res)
+
+        if req.metodo == "diferencias_divididas":
+            res = interpolacion_diferencias_divididas(req.x_vals, req.y_vals, req.x_eval)
+        else:
+            res = interpolacion_lineal(req.x_vals, req.y_vals, req.x_eval)
+
+        if not res.get("exito"):
+            raise ValueError(res.get("mensaje", "Error en interpolación."))
+        return _sanitizar_json(res)
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error interno en Módulo 5: {e}")
+
+
+# =============================================================================
+# MÓDULO 6: PROYECCIONES Y SERIES DE TIEMPO
+# =============================================================================
+@app.post("/api/m6/proyecciones")
+def api_modulo_6(req: Modulo6ProyeccionesRequest):
+    try:
+        if req.metodo == "lineal":
+            res = regresion_lineal_simple(req.x_vals, req.y_vals, req.x_eval)
+        elif req.metodo == "polinomial":
+            res = regresion_polinomial(req.x_vals, req.y_vals, req.grado, req.x_eval)
+        elif req.metodo == "exponencial":
+            res = regresion_exponencial(req.x_vals, req.y_vals, req.x_eval)
+        elif req.metodo == "potencial":
+            res = regresion_potencial(req.x_vals, req.y_vals, req.x_eval)
+        elif req.metodo == "logaritmica":
+            res = regresion_logaritmica(req.x_vals, req.y_vals, req.x_eval)
+        elif req.metodo == "comparar":
+            res = comparar_modelos_proyeccion(req.x_vals, req.y_vals, req.x_eval, req.grado)
+        else:
+            res = pronostico_series_tiempo(
+                y_vals=req.y_vals,
+                submetodo=req.submetodo_ts,
+                ventana_k=req.ventana_k,
+                pesos=req.pesos,
+                alpha=req.alpha,
+                beta=req.beta,
+                horizonte_h=req.horizonte_h,
+                periodo_estacional=req.periodo_estacional,
+                t_vals=req.x_vals,
+            )
+
+        if not res.get("exito"):
+            raise ValueError(res.get("mensaje", "Error en proyección."))
+        return _sanitizar_json(res)
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error interno en Módulo 6: {e}")
+
+
+# =============================================================================
+# MÓDULO 4: EXPORTACIÓN PDF ACADÉMICA
+# =============================================================================
+@app.post("/api/m4/pdf")
+def api_generar_pdf(req: PDFExportRequest):
+    try:
+        pdf_bytes = PDFReportEngine.generar_reporte_pdf(
+            titulo_metodo=req.titulo_metodo,
+            entradas_dict=req.entradas_dict,
+            resultado_str=req.resultado_str,
+            iteraciones_list=req.iteraciones_list,
+            pasos_matriz_list=req.pasos_matriz_list,
+        )
+        nombre_archivo = f"Reporte_{req.titulo_metodo[:24].replace(' ', '_')}.pdf"
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{nombre_archivo}"'},
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al generar PDF: {e}")
+
+
+# Montar el frontend PWA en la raíz si el directorio ya existe (Pieza 2)
+FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
+if FRONTEND_DIR.exists():
+    app.mount("/", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="frontend")
 ]]></archivo>
 </especificador>

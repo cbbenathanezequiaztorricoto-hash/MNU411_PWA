@@ -108,7 +108,7 @@ class Modulo6ProyeccionesRequest(BaseModel):
     pesos: list[float] | None = None
     alpha: float = Field(default=0.35, gt=0.0, le=1.0)
     beta: float = Field(default=0.15, ge=0.0, le=1.0)
-    horizonte_h: int = Field(default=3, ge=1, le=48)
+    horizonte_h: int = Field(default=3, ge=1, le=120)
     periodo_estacional: int = Field(default=4, ge=2, le=24)
 
 
