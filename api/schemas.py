@@ -87,6 +87,7 @@ class Modulo5InterpolacionRequest(BaseModel):
     x_evals: list[float] | None = None
     ordenes: list[int] | None = None
     func_exacta: str | None = None
+    factor_conversion: float | None = Field(default=None, description="Factor de conversión de unidades (ej: lb/plg² → kg/cm²)")
     decimales: int = Field(default=6, ge=1, le=12)
 
 
