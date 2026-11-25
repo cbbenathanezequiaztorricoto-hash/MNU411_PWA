@@ -1,349 +1,102 @@
-```python
-import numpy as np
-
-# Problema 1
-x1 = np.array([1992, 1993, 1994, 1995, 1996, 1997, 1998], dtype=float)
-y1 = np.array([510, 515, 518, 522, 528, 532, 536], dtype=float)
-print("P1 media Y:", np.mean(y1))
-a1_yx, a0_yx = np.polyfit(x1, y1, 1)
-print(f"P1 Y sobre X: y = {a0_yx:.6f} + {a1_yx:.6f}*x | y(2021) = {a0_yx + a1_yx*2021:.4f}")
-a1_xy, a0_xy = np.polyfit(y1, x1, 1)
-print(f"P1 X sobre Y: x = {a0_xy:.6f} + {a1_xy:.6f}*y")
-print("P1 r:", np.corrcoef(x1, y1)[0,1])
-
-# Problema 2
-x2 = np.array([8, 10, 12, 14, 16], dtype=float)
-y2 = np.array([0.0236, 0.0475, 0.0830, 0.1736, 0.2020], dtype=float)
-p2 = np.polyfit(x2, y2, 4)
-print("P2 coefs (x^4..x^0):", p2)
-print("P2 P4(13):", np.polyval(p2, 13.0))
-
-# Problema 3
-x3 = np.array([1, 2, 3, 5, 6, 8, 9], dtype=float)
-y3 = np.array([0.9, 1.8, 2.5, 3.75, 4.2, 4.8, 4.95], dtype=float)
-p3a = np.polyfit(x3, y3, 6)
-print("P3a y(15 decimas = 1.5s):", np.polyval(p3a, 15.0))
-p3b = np.polyfit(y3, x3, 6)
-print("P3b t(5 metros):", np.polyval(p3b, 5.0))
-
-# Problema 4
-x4 = np.array([4, 0, -6, 1, -4], dtype=float)
-y4 = np.array([808, 4, 1438, 10, 160], dtype=float)
-p4_3 = np.polyfit(x4[:4], y4[:4], 3)
-p4_4 = np.polyfit(x4, y4, 4)
-print("P4 orden 3 en x=-1:", np.polyval(p4_3, -1.0), "coefs:", p4_3)
-print("P4 orden 4 en x=-1:", np.polyval(p4_4, -1.0), "coefs:", p4_4)
-print("P4 error abs:", abs(np.polyval(p4_4, -1.0) - np.polyval(p4_3, -1.0)))
-
-# Problema 6
-y6 = np.array([
-    1861, 2203, 2415, 1908,
-    1921, 2343, 2514, 1986,
-    1834, 2154, 2098, 1799,
-    1837, 2025, 2304, 1965,
-    2073, 2414, 2339, 1967
-], dtype=float)
-t6 = np.arange(1, 21, dtype=float)
-b1, b0 = np.polyfit(t6, y6, 1)
-tend = b0 + b1 * t6
-raz = y6 / tend
-idx_bruto = np.array([np.mean(raz[s::4]) for s in range(4)])
-idx_est = idx_bruto * (4.0 / np.sum(idx_bruto))
-print(f"P6 Tendencia: T(t) = {b0:.4f} + {b1:.4f}*t | Indices:", np.round(idx_est, 4))
-for q, t_fut in enumerate([73, 74, 75, 76], start=1):
-    val = (b0 + b1 * t_fut) * idx_est[q-1]
-    print(f"  2023 T{q} (t={t_fut}): {val:.4f}")
-
-
-```
-
-```text
-P1 media Y: 523.0
-P1 Y sobre X: y = -8169.500000 + 4.357143*x | y(2021) = 636.2857
-P1 X sobre Y: x = 1875.513109 + 0.228464*y
-P1 r: 0.997723465409951
-P2 coefs (x^4..x^0): [-4.187500e-04  1.933125e-02 -3.255625e-01  2.391400e+00 -6.454000e+00]
-P2 P4(13): 0.12497500000000716
-P3a y(15 decimas = 1.5s): -104.96250000007134
-P3b t(5 metros): 9.424309187226225
-P4 orden 3 en x=-1: 98.00000000000071 coefs: [  3.  50. -47.   4.]
-P4 orden 4 en x=-1: -1.9999999999983782 coefs: [ 2.  5. -2.  1.  4.]
-P4 error abs: 99.99999999999909
-P6 Tendencia: T(t) = 2080.1579 + 1.6992*t | Indices: [0.9091 1.0623 1.1122 0.9164]
-  2023 T1 (t=73): 2003.8886
-  2023 T2 (t=74): 2343.3058
-  2023 T3 (t=75): 2455.2347
-  2023 T4 (t=76): 2024.6394
-
-
-```
-
-**Sí, puedes resolver los 6 ejercicios del examen con tu calculadora**, pero hay **1 bloqueo técnico en el Problema 6** (el horizonte máximo actual es `48` y necesitas `56` trimestres para llegar de 2009 a 2023) y **3 detalles de uso/desarrollo** que debes cuidar para cumplir exactamente lo que pidió tu ingeniera (*anotar el método y hacer a mano el desarrollo algebraico que la pantalla no desglose*).
-
----
-
-## 1. Diagnóstico del Examen (HITO-4) en tu Calculadora MNU411
-
-| Ej. | Método a anotar en tu hoja | Módulo en la App | ¿Funciona hoy? | Qué muestra la App vs. Qué debes escribir a mano |
-| --- | --- | --- | --- | --- |
-| **1** | **Regresión Lineal Simple (Mínimos Cuadrados)** | `M6 · PROY` → `Regresión Lineal` | **Sí** (con truco en inciso *b*) | **Muestra:** sumatorias ($\sum x, \sum y, \sum x^2, \sum xy$), $a_0, a_1$, correlación $r = 0.9977$, gráfica en GeoGebra y $\hat{y}(2021) \approx 636.29$.<br>
-
-<br>**A mano / Truco:** Para la recta de **$X$ sobre $Y$** (inciso *b*), invierte las columnas ($x_i=\text{Accidentes}$, $y_i=\text{Años}$). Copia la sustitución de las sumatorias en las fórmulas y divide $\sum y / 7 = 523$ para la media. |
-| **2** | **Interpolación Polinomial por Diferencias Divididas** *(o Newton)* | `M5 · INTERP` → `Dif. Divididas` | **Sí** *(usa Dif. Divididas, no Newton Adelante)* | **Muestra:** `Newton Adelante` no imprime la ecuación del polinomio $P_4(x)$, pero `Dif. Divididas` sí te da $P_4(x)$, la tabla de diferencias y $P_4(13) = 0.124975$.<br>
-
-<br>**A mano:** Copia la tabla triangular de diferencias y el armado de $P_4(x)$. |
-| **3** | **Interpolación Polinomial por Diferencias Divididas de Newton** | `M5 · INTERP` → `Dif. Divididas` | **Sí** (con conversión de unidades) | **Muestra:** tabla triangular, polinomio y valor evaluado.<br>
-
-<br>**¡Cuidado en el examen!**<br>
-
-<br>• **Inciso a):** la tabla está en **décimas de segundo** ($1..9$), así que **$1.5\text{ s} = 15\text{ décimas}$** (`x* = 15`, extrapolación).<br>
-
-<br>• **Inciso b) (Interpolación inversa):** invierte columnas ($x_i = \text{Altura}$, $y_i = \text{Tiempo}$) y evalúa en `x* = 5`. |
-| **4** | **Interpolación Polinomial de Lagrange** | `M5 · INTERP` → `Lagrange` | **Parcial** (requiere 2 corridas) | **Muestra:** polinomio $P(x)$ y valores numéricos de $L_i(-1)$ y $L_i(-1)\cdot f_i$.<br>
-
-<br>**A mano / 2 corridas:** Como Lagrange usa todos los puntos de la tabla, primero mete **4 puntos** (`[4, 0, -6, 1]`) con `x* = -1` para **3.er orden** ($P_3(-1) = 98$), luego añade `(-4, 160)` para **4.º orden** ($P_4(-1) = -2$). El error $\vert{}P_4(-1)-P_3(-1)\vert{} = 100$ lo sacas en `M0` o `M1`. Escribe a mano las fracciones de cada $L_i(x)$. |
-| **5** | **Regresión Lineal Simple (Mínimos Cuadrados)** | `M6 · PROY` → `Regresión Lineal` | **Sí** (2 corridas) | **Muestra:** sumatorias, parámetros, $r$ y estimaciones.<br>
-
-<br>**En la App:** Corrida 1 con $X=\text{Matemáticas}, Y=\text{Biología}$ y evalúa en `8.5` y `3`. Corrida 2 invirtiendo columnas ($X=\text{Biología}, Y=\text{Matemáticas}$) para la segunda recta. Copia a mano el reemplazo en las ecuaciones normales. |
-| **6** | **Series de Tiempo — Descomposición Estacional Multiplicativa** | `M6 · PROY` → `Series de Tiempo` (`ESTACIONAL`, $L=4$) | **Bloqueado sin parche** (`max: 48`) | De 2009 T4 ($t=20$) a 2023 T4 ($t=76$) hay **$h = 56$ trimestres** (los trimestres de 2023 son $t = 73, 74, 75, 76$). Actualmente la app bloquea $h > 48$. Con el parche de abajo te calcula todo y te da la recta de tendencia base $T(t)$ y los 4 índices estacionales $I_1..I_4$ para copiarlos a mano. |
-
----
-
-## 2. Parches Exactos `CTRL + F` para dejar la Calculadora Lista Hoy
-
-Aplica estos **4 reemplazos** antes de arrancar `uvicorn` (y recuerda recargar la página con `Ctrl + Shift + R` para que el Service Worker tome los cambios).
-
-### Parche 1 — Archivo: `api/schemas.py`
-
-Desbloquea el horizonte futuro hasta `120` periodos para soportar la proyección trimestral hasta 2023 ($h = 56$) del **Problema 6**.
-
-* **Buscar (`CTRL + F`):**
-
-```python
-    alpha: float = Field(default=0.35, gt=0.0, le=1.0)
-    beta: float = Field(default=0.15, ge=0.0, le=1.0)
-    horizonte_h: int = Field(default=3, ge=1, le=48)
-    periodo_estacional: int = Field(default=4, ge=2, le=24)
-
-```
-
-* **Reemplazar por:**
-
-```python
-    alpha: float = Field(default=0.35, gt=0.0, le=1.0)
-    beta: float = Field(default=0.15, ge=0.0, le=1.0)
-    horizonte_h: int = Field(default=3, ge=1, le=120)
-    periodo_estacional: int = Field(default=4, ge=2, le=24)
-
-```
-
----
-
-### Parche 2 — Archivo: `frontend/js/modules_ui.js` (Límite de Horizonte)
-
-Permite ingresar `56` en el campo *Horizonte futuro (h)* sin que salte alerta de validación en el navegador.
-
-* **Buscar (`CTRL + F`):**
-
-```javascript
-        const horizonte_h = this._readNumber("p-horizonte", "Horizonte futuro (h)", {
-          min: 1,
-          max: 48,
-          integer: true,
-        });
-
-```
-
-* **Reemplazar por:**
-
-```javascript
-        const horizonte_h = this._readNumber("p-horizonte", "Horizonte futuro (h)", {
-          min: 1,
-          max: 120,
-          integer: true,
-        });
-
-```
-
----
-
-### Parche 3 — Archivo: `frontend/js/modules_ui.js` (Desarrollo Paso a Paso en Pantalla)
-
-Mejora la vista de resultados para el examen:
-
-1. Oculta con `—` los ceros sobrantes en la mitad inferior de la **Tabla de Diferencias Divididas** (**Problemas 2 y 3**).
-2. Muestra en pantalla el **cálculo paso a paso de cada diferencia dividida** (`res.pasos`) para que lo copies directo a mano.
-3. Muestra una **tabla ordenada de Pronósticos Futuros (`t` vs `ŷ_t`)** para leer directo $t = 73, 74, 75, 76$ (2023) en el **Problema 6**.
-
-* **Buscar (`CTRL + F`):**
-
-```javascript
-    if (Array.isArray(res.tabla_diferencias) && res.tabla_diferencias.length > 0) {
-      const matRows = res.tabla_diferencias
-        .map(
-          (row, idx) =>
-            `<tr><td>${res.x[idx]}</td>${row
-              .map((val) => `<td>${Number(val).toFixed(6)}</td>`)
-              .join("")}</tr>`
-        )
-        .join("");
-      html += `
-        <h3 class="res-subtitle">Tabla de Diferencias Divididas</h3>
-        <div class="tactile-table-scroll">
-          <table class="results-iter-table"><tbody>${matRows}</tbody></table>
-        </div>
-      `;
-    }
-
-```
-
-* **Reemplazar por:**
-
-```javascript
-    if (Array.isArray(res.tabla_diferencias) && res.tabla_diferencias.length > 0) {
-      const nPts = res.tabla_diferencias.length;
-      const matRows = res.tabla_diferencias
-        .map(
-          (row, idx) =>
-            `<tr><td>${res.x[idx]}</td>${row
-              .map((val, colIdx) =>
-                colIdx >= nPts - idx
-                  ? `<td>—</td>`
-                  : `<td>${Number(val).toFixed(6)}</td>`
-              )
-              .join("")}</tr>`
-        )
-        .join("");
-      html += `
-        <h3 class="res-subtitle">Tabla de Diferencias Divididas</h3>
-        <div class="tactile-table-scroll">
-          <table class="results-iter-table"><tbody>${matRows}</tbody></table>
-        </div>
-      `;
-    }
-
-    if (Array.isArray(res.pasos) && res.pasos.length > 0) {
-      const pasosLi = res.pasos
-        .map(
-          (p) =>
-            `<li><code>${p.formula}</code> = <strong>${Number(p.valor).toFixed(6)}</strong></li>`
-        )
-        .join("");
-      html += `
-        <h3 class="res-subtitle">Desarrollo Paso a Paso (Diferencias Divididas)</h3>
-        <ol class="res-steps-list">${pasosLi}</ol>
-      `;
-    }
-
-    if (Array.isArray(res.t_futuro) && Array.isArray(res.pronosticos_futuros)) {
-      const futRows = res.t_futuro.map((tf, idx) => ({
-        "Periodo (t)": tf,
-        "Pronóstico ŷ_t": res.pronosticos_futuros[idx],
-      }));
-      html += this._buildGenericTableHtml("Tabla de Pronósticos Futuros", futRows);
-    }
-
-```
-
----
-
-### Parche 4 — Archivo: `engine/interpolacion.py` (Polinomio limpio en Dif. Divididas + Fórmulas de Lagrange)
-
-Evita términos residuales tipo `1e-14 * x^4` al expandir el polinomio de grado 4 del **Problema 2** y añade la fórmula desarrollada de cada $L_i(x)$ en la tabla de **Lagrange** (**Problema 4**).
-
-* **Buscar (`CTRL + F`):**
-
-```python
-        for i in range(n):
-            numerador = 1.0
-            denominador = 1.0
-            for j in range(n):
-                if i != j:
-                    numerador *= (xp - x[j])
-                    denominador *= (x[i] - x[j])
-
-            li = numerador / denominador
-            aporte = li * float(y[i])
-            resultado += aporte
-
-            desglose.append(
-                {
-                    "i": i,
-                    "x_i": round(float(x[i]), 6),
-                    "f(x_i)": round(float(y[i]), 6),
-                    "L_i(x)": round(float(li), 6),
-                    "L_i(x)*f_i": round(float(aporte), 6),
-                }
-            )
-
-```
-
-* **Reemplazar por:**
-
-```python
-        for i in range(n):
-            numerador = 1.0
-            denominador = 1.0
-            num_terms = []
-            den_terms = []
-            for j in range(n):
-                if i != j:
-                    numerador *= (xp - x[j])
-                    denominador *= (x[i] - x[j])
-                    num_terms.append(f"({xp:g} - ({x[j]:g}))")
-                    den_terms.append(f"({x[i]:g} - ({x[j]:g}))")
-
-            li = numerador / denominador
-            aporte = li * float(y[i])
-            resultado += aporte
-
-            desglose.append(
-                {
-                    "i": i,
-                    "x_i": round(float(x[i]), 6),
-                    "f(x_i)": round(float(y[i]), 6),
-                    "Fórmula L_i": f"[{'·'.join(num_terms)}] / [{'·'.join(den_terms)}]",
-                    "L_i(x)": round(float(li), 6),
-                    "L_i(x)*f_i": round(float(aporte), 6),
-                }
-            )
-
-```
-
-* **Buscar (`CTRL + F`) en el mismo archivo `engine/interpolacion.py`:**
-
-```python
-    # Construcción simbólica con SymPy (forma Newton y forma canónica expandida)
-    x_sym = sp.Symbol("x")
-    poli_newton_expr = sp.Float(coeficientes[0], 10)
-    termino_prod = sp.Integer(1)
-    for j in range(1, n):
-        termino_prod = termino_prod * (x_sym - sp.Float(x[j - 1], 10))
-        poli_newton_expr += sp.Float(coeficientes[j], 10) * termino_prod
-
-    poli_expandido_expr = sp.expand(poli_newton_expr)
-
-```
-
-* **Reemplazar por:**
-
-```python
-    # Construcción simbólica con SymPy (forma Newton y forma canónica expandida)
-    x_sym = sp.Symbol("x")
-    poli_newton_expr = sp.Float(coeficientes[0], 10)
-    termino_prod = sp.Integer(1)
-    for j in range(1, n):
-        termino_prod = termino_prod * (x_sym - sp.Float(x[j - 1], 10))
-        poli_newton_expr += sp.Float(coeficientes[j], 10) * termino_prod
-
-    poli_expandido_raw = sp.expand(poli_newton_expr)
-    poly_obj = sp.Poly(poli_expandido_raw, x_sym)
-    poli_expandido_expr = sum(
-        sp.Float(round(float(coef), 8), 8) * (x_sym ** deg)
-        for (deg,), coef in poly_obj.terms()
-        if abs(float(coef)) > 1e-12
+from pathlib import Path
+
+RAIZ_PROYECTO = Path(__file__).resolve().parent
+ARCHIVO_SPEC_ACTUAL = RAIZ_PROYECTO / "IA_y_otros" / "MNU411_Especificador.txt"
+CARPETA_SALIDA = RAIZ_PROYECTO / "contexto_ia"
+
+ARCHIVOS_BACKEND = {
+    Path("api/main.py"),
+    Path("api/latex_parser.py"),
+    Path("api/schemas.py"),
+    Path("engine/__init__.py"),
+    Path("engine/interpolacion.py"),
+    Path("engine/proyecciones.py"),
+    Path("engine/no_lineales.py"),
+    Path("engine/sistemas_lineales.py"),
+    Path("engine/errores.py"),
+    Path("engine/pdf_generator.py"),
+}
+
+ARCHIVOS_FRONTEND = {
+    Path("frontend/index.html"),
+    Path("frontend/manifest.json"),
+    Path("frontend/sw.js"),
+    Path("frontend/css/calculator.css"),
+    Path("frontend/js/display_math.js"),
+    Path("frontend/js/keypad.js"),
+    Path("frontend/js/api_client.js"),
+    Path("frontend/js/geogebra_native.js"),
+    Path("frontend/js/modules_ui.js"),
+}
+
+
+def extraer_cabecera_spec() -> str:
+    contenido = ARCHIVO_SPEC_ACTUAL.read_text(encoding="utf-8")
+    marcador = "<?xml"
+    idx = contenido.find(marcador)
+    if idx != -1:
+        return contenido[:idx].strip()
+    return contenido.strip()
+
+
+def formatear_bloque_archivo(ruta_rel: Path) -> str:
+    ruta = RAIZ_PROYECTO / ruta_rel
+    texto = ruta.read_text(encoding="utf-8")
+    texto = texto.replace("]]>", "]]]]><![CDATA[>")
+    return (
+        f'<archivo ruta="{ruta_rel.as_posix()}"><![CDATA[\n'
+        f"{texto}\n"
+        "</archivo>\n"
     )
-    if poli_expandido_expr == 0:
-        poli_expandido_expr = sp.Float(0.0, 4)
 
-```
+
+def construir_paquete(
+    nombre_salida: str,
+    cabecera: str,
+    rutas_objetivo: set[Path],
+) -> None:
+    bloques = [cabecera, "\n<especificador>"]
+
+    for ruta_rel in sorted(rutas_objetivo):
+        bloques.append(formatear_bloque_archivo(ruta_rel))
+
+    bloques.append("</especificador>\n")
+    resultado = "\n".join(bloques)
+
+    archivo_destino = CARPETA_SALIDA / nombre_salida
+    archivo_destino.write_text(resultado, encoding="utf-8")
+    peso_kb = archivo_destino.stat().st_size / 1024
+    print(
+        f"[OK] {archivo_destino.relative_to(RAIZ_PROYECTO)} -> "
+        f"{peso_kb:.1f} KB ({len(rutas_objetivo)} archivos)"
+    )
+
+
+def main():
+    CARPETA_SALIDA.mkdir(parents=True, exist_ok=True)
+    spec_texto = extraer_cabecera_spec()
+
+    # 1. Solo SPEC y Contrato de Esquemas (ultra ligero)
+    construir_paquete(
+        "01_SPEC_y_CONTRATO.txt",
+        spec_texto,
+        {Path("api/schemas.py")},
+    )
+
+    # 2. SPEC + Motor Matemático y API REST
+    construir_paquete(
+        "02_BACKEND_ENGINE.txt",
+        spec_texto,
+        ARCHIVOS_BACKEND,
+    )
+
+    # 3. SPEC + Interfaz PWA (HTML, CSS, JS)
+    construir_paquete(
+        "03_FRONTEND_PWA.txt",
+        spec_texto,
+        ARCHIVOS_FRONTEND,
+    )
+
+
+if __name__ == "__main__":
+    main()

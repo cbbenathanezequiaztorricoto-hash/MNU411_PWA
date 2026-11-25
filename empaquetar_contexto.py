@@ -1,0 +1,104 @@
+from pathlib import Path
+
+RAIZ_PROYECTO = Path(__file__).resolve().parent
+ARCHIVO_SPEC_ACTUAL = RAIZ_PROYECTO / "IA_y_otros" / "MNU411_Especificador.txt"
+CARPETA_SALIDA = RAIZ_PROYECTO / "contexto_ia"
+
+ARCHIVOS_BACKEND = {
+    Path("api/main.py"),
+    Path("api/latex_parser.py"),
+    Path("api/schemas.py"),
+    Path("engine/__init__.py"),
+    Path("engine/interpolacion.py"),
+    Path("engine/proyecciones.py"),
+    Path("engine/no_lineales.py"),
+    Path("engine/sistemas_lineales.py"),
+    Path("engine/errores.py"),
+    Path("engine/pdf_generator.py"),
+}
+
+ARCHIVOS_FRONTEND = {
+    Path("frontend/index.html"),
+    Path("frontend/manifest.json"),
+    Path("frontend/sw.js"),
+    Path("frontend/css/calculator.css"),
+    Path("frontend/js/display_math.js"),
+    Path("frontend/js/keypad.js"),
+    Path("frontend/js/api_client.js"),
+    Path("frontend/js/geogebra_native.js"),
+    Path("frontend/js/modules_ui.js"),
+}
+
+
+def extraer_cabecera_spec() -> str:
+    contenido = ARCHIVO_SPEC_ACTUAL.read_text(encoding="utf-8")
+    marcador = "<?xml"
+    idx = contenido.find(marcador)
+    if idx != -1:
+        return contenido[:idx].strip()
+    return contenido.strip()
+
+
+def formatear_bloque_archivo(ruta_rel: Path) -> str:
+    ruta = RAIZ_PROYECTO / ruta_rel
+    texto = ruta.read_text(encoding="utf-8")
+    texto = texto.replace("]]>", "]]]]><![CDATA[>")
+    return (
+        f'<archivo ruta="{ruta_rel.as_posix()}"><![CDATA[\n'
+        f"{texto}\n"
+        "</archivo>\n"
+    )
+
+
+def construir_paquete(
+    nombre_salida: str,
+    cabecera: str,
+    rutas_objetivo: set[Path],
+) -> None:
+    bloques = [cabecera, "\n<especificador>"]
+
+    for ruta_rel in sorted(rutas_objetivo):
+        bloques.append(formatear_bloque_archivo(ruta_rel))
+
+    bloques.append("</especificador>\n")
+    resultado = "\n".join(bloques)
+
+    archivo_destino = CARPETA_SALIDA / nombre_salida
+    archivo_destino.write_text(resultado, encoding="utf-8")
+     # Verificación post-escritura
+    releido = archivo_destino.read_text(encoding="utf-8")
+    assert releido == resultado, f"[FALLO] {nombre_salida} quedó corrupto en disco"
+    assert releido.rstrip().endswith("</especificador>"), f"[FALLO] {nombre_salida} sin cierre"
+
+    peso_kb = archivo_destino.stat().st_size / 1024
+    print(f"[OK] {archivo_destino.relative_to(RAIZ_PROYECTO)} -> "
+          f"{peso_kb:.1f} KB ({len(rutas_objetivo)} archivos, integridad verificada)")
+
+def main():
+    CARPETA_SALIDA.mkdir(parents=True, exist_ok=True)
+    spec_texto = extraer_cabecera_spec()
+
+    # 1. Solo SPEC y Contrato de Esquemas (ultra ligero)
+    construir_paquete(
+        "01_SPEC_y_CONTRATO.txt",
+        spec_texto,
+        {Path("api/schemas.py")},
+    )
+
+    # 2. SPEC + Motor Matemático y API REST
+    construir_paquete(
+        "02_BACKEND_ENGINE.txt",
+        spec_texto,
+        ARCHIVOS_BACKEND,
+    )
+
+    # 3. SPEC + Interfaz PWA (HTML, CSS, JS)
+    construir_paquete(
+        "03_FRONTEND_PWA.txt",
+        spec_texto,
+        ARCHIVOS_FRONTEND,
+    )
+
+
+if __name__ == "__main__":
+    main()

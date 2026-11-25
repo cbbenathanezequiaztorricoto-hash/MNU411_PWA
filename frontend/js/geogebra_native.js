@@ -153,17 +153,55 @@ class GeoGebraNativeController {
           ggb.setLineThickness("Curva", 4);
         }
 
-        const xEval = Number(result.x_eval ?? payload.x_eval);
-        const yEval = Number(result.resultado ?? result.mejor_modelo?.proyeccion);
-        if (Number.isFinite(xEval) && Number.isFinite(yEval)) {
-          ggb.evalCommand(`Estimado = (${xEval}, ${yEval})`);
-          ggb.setColor("Estimado", 22, 163, 74);
-          ggb.setPointSize("Estimado", 6);
+        // Curvas adicionales (ej. órdenes secundarios P_3 vs P_4)
+        if (Array.isArray(result.curvas_extra)) {
+          const palette = [
+            [124, 58, 237],
+            [234, 88, 12],
+            [13, 148, 136],
+          ];
+          result.curvas_extra.forEach((extra, idx) => {
+            if (extra && extra.geogebra) {
+              const fnName = (extra.nombre || `Extra_${idx + 1}`).replace(/[^a-zA-Z0-9_]/g, "_");
+              ggb.evalCommand(`${fnName}(x) = ${extra.geogebra}`);
+              const [r, g, b] = palette[idx % palette.length];
+              ggb.setColor(fnName, r, g, b);
+              ggb.setLineThickness(fnName, 3);
+            }
+          });
+        }
+
+        const extraEvalX = [];
+        const extraEvalY = [];
+
+        if (Array.isArray(result.resultados_puntos) && result.resultados_puntos.length > 0) {
+          result.resultados_puntos.forEach((rp, idx) => {
+            const px = Number(rp.x_p);
+            const py = Number(rp.valor_principal);
+            if (Number.isFinite(px) && Number.isFinite(py)) {
+              const ptLabel = result.resultados_puntos.length === 1 ? "Estimado" : `Est_${idx + 1}`;
+              ggb.evalCommand(`${ptLabel} = (${px}, ${py})`);
+              ggb.setColor(ptLabel, 22, 163, 74);
+              ggb.setPointSize(ptLabel, 6);
+              extraEvalX.push(px);
+              extraEvalY.push(py);
+            }
+          });
+        } else {
+          const xEval = Number(result.x_eval ?? payload.x_eval);
+          const yEval = Number(result.resultado ?? result.mejor_modelo?.proyeccion);
+          if (Number.isFinite(xEval) && Number.isFinite(yEval)) {
+            ggb.evalCommand(`Estimado = (${xEval}, ${yEval})`);
+            ggb.setColor("Estimado", 22, 163, 74);
+            ggb.setPointSize("Estimado", 6);
+            extraEvalX.push(xEval);
+            extraEvalY.push(yEval);
+          }
         }
 
         if (xs.length > 0 && ys.length > 0) {
-          const allX = Number.isFinite(xEval) ? [...xs, xEval] : xs;
-          const allY = Number.isFinite(yEval) ? [...ys, yEval] : ys;
+          const allX = [...xs, ...extraEvalX];
+          const allY = [...ys, ...extraEvalY];
           const minX = Math.min(...allX) - 2;
           const maxX = Math.max(...allX) + 2;
           const minY = Math.min(...allY) - 2;

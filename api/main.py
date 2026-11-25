@@ -286,27 +286,61 @@ def api_modulo_3(req: Modulo3SistemasRequest):
 def api_modulo_5(req: Modulo5InterpolacionRequest):
     try:
         if req.metodo in ("newton_adelante", "newton_atras", "lagrange"):
+            puntos_eval = req.x_evals if (req.x_evals and len(req.x_evals) > 0) else req.x_eval
             if req.metodo == "newton_adelante":
-                res = InterpolacionEngine.newton_adelante(req.x_vals, req.y_vals, req.x_eval)
+                res = InterpolacionEngine.newton_adelante(
+                    req.x_vals,
+                    req.y_vals,
+                    req.x_eval,
+                    x_evals=req.x_evals,
+                    ordenes=req.ordenes,
+                    func_exacta=req.func_exacta,
+                    factor_conversion=req.factor_conversion,
+                    decimales=req.decimales,
+                )
             elif req.metodo == "newton_atras":
-                res = InterpolacionEngine.newton_atras(req.x_vals, req.y_vals, req.x_eval)
+                res = InterpolacionEngine.newton_atras(
+                    req.x_vals,
+                    req.y_vals,
+                    req.x_eval,
+                    x_evals=req.x_evals,
+                    ordenes=req.ordenes,
+                    func_exacta=req.func_exacta,
+                    factor_conversion=req.factor_conversion,
+                    decimales=req.decimales,
+                )
             else:
-                res = InterpolacionEngine.lagrange(req.x_vals, req.y_vals, req.x_eval)
+                res = InterpolacionEngine.lagrange(
+                    req.x_vals,
+                    req.y_vals,
+                    puntos_eval,
+                    ordenes=req.ordenes,
+                    func_exacta=req.func_exacta,
+                    decimales=req.decimales,
+                )
 
-            # Adjuntar polinomio equivalente para GeoGebra
-            res_poli = interpolacion_diferencias_divididas(req.x_vals, req.y_vals, req.x_eval)
             res["exito"] = True
             res["resultado"] = res["solucion"]
-            res["polinomio_geogebra"] = (
-                res_poli["polinomio_geogebra"] if res_poli.get("exito") else None
-            )
-            res["polinomio_expandido_latex"] = (
-                res_poli["polinomio_expandido_latex"] if res_poli.get("exito") else None
-            )
+            if not res.get("polinomio_geogebra"):
+                res_poli = interpolacion_diferencias_divididas(req.x_vals, req.y_vals, req.x_eval)
+                res["polinomio_geogebra"] = (
+                    res_poli["polinomio_geogebra"] if res_poli.get("exito") else None
+                )
+                res["polinomio_expandido_latex"] = (
+                    res_poli["polinomio_expandido_latex"] if res_poli.get("exito") else None
+                )
             return _sanitizar_json(res)
 
         if req.metodo == "diferencias_divididas":
-            res = interpolacion_diferencias_divididas(req.x_vals, req.y_vals, req.x_eval)
+            res = interpolacion_diferencias_divididas(
+                req.x_vals,
+                req.y_vals,
+                req.x_eval,
+                x_evals=req.x_evals,
+                ordenes=req.ordenes,
+                func_exacta=req.func_exacta,
+                decimales=req.decimales,
+            )
         else:
             res = interpolacion_lineal(req.x_vals, req.y_vals, req.x_eval)
 

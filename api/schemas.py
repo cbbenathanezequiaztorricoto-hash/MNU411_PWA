@@ -84,6 +84,10 @@ class Modulo5InterpolacionRequest(BaseModel):
     x_vals: list[float] = Field(..., min_length=2)
     y_vals: list[float] = Field(..., min_length=2)
     x_eval: float
+    x_evals: list[float] | None = None
+    ordenes: list[int] | None = None
+    func_exacta: str | None = None
+    decimales: int = Field(default=6, ge=1, le=12)
 
 
 # -----------------------------------------------------------------------------

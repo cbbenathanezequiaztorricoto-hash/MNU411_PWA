@@ -387,15 +387,40 @@ class ModulesUIController {
     // -------------------- MÓDULO 5: INTERPOLACIÓN FUNCIONAL ----------------
     else if (mod === "M5") {
       window.MNU411.display?.setPrompt("Puntos:");
-      const note =
-        sub === "newton_adelante" || sub === "newton_atras"
-          ? `<p class="helper-hint">Nota: Newton hacia adelante/atrás requiere nodos <strong>xᵢ</strong> equidistantes (paso h constante) y <strong>x*</strong> dentro del rango.</p>`
-          : `<p class="helper-hint">Soporta nodos con separación variable o constante:</p>`;
+      const esNewtonFinitas = sub === "newton_adelante" || sub === "newton_atras";
+      const note = esNewtonFinitas
+        ? `<p class="helper-hint">Newton hacia adelante/atrás requiere nodos <strong>xᵢ</strong> equidistantes (paso h constante) y <strong>x*</strong> dentro del rango. Permite múltiples puntos, órdenes y factor de conversión:</p>`
+        : `<p class="helper-hint">Soporta nodos desordenados, múltiples puntos x* y comparación de órdenes en una sola corrida:</p>`;
+
+      const inputsPolinomiales =
+        sub !== "lineal"
+          ? `
+          <div class="param-field">
+            <label for="p-xevals-multi">Puntos x* (separados por coma)</label>
+            <input type="text" id="p-xevals-multi" value="2.5" placeholder="Ej: 1.5, 2.5" />
+          </div>
+          <div class="param-field">
+            <label for="p-ordenes-m5">Órdenes / Grados (opcional)</label>
+            <input type="text" id="p-ordenes-m5" value="" placeholder="Ej: 3, 4" />
+          </div>
+          <div class="param-field">
+            <label for="p-func-exacta">f(x) exacta (opcional)</label>
+            <input type="text" id="p-func-exacta" value="" placeholder="Ej: exp(x), log(x)" />
+          </div>
+          ${
+            esNewtonFinitas
+              ? `<div class="param-field">
+                  <label for="p-factor-conv">Factor conversión (opcional)</label>
+                  <input type="number" step="any" id="p-factor-conv" value="" placeholder="Ej: 0.070307" />
+                </div>`
+              : ""
+          }`
+          : `${this._numInputHtml("p-xeval", "Valor x* a interpolar", "2.5")}`;
 
       formEl.innerHTML = `
         ${note}
         <div class="params-grid-2">
-          ${this._numInputHtml("p-xeval", "Valor x* a interpolar", "2.5")}
+          ${inputsPolinomiales}
           <div class="param-field">
             <label>Nodos (xᵢ, yᵢ)</label>
             <div class="table-row-btns">
@@ -782,6 +807,43 @@ class ModulesUIController {
       if (new Set(x_vals).size !== x_vals.length) {
         throw new Error("Los valores de xᵢ no pueden repetirse en interpolación.");
       }
+      if (sub !== "lineal") {
+        const rawMulti = (document.getElementById("p-xevals-multi")?.value || "").trim();
+        const x_evals = rawMulti
+          .split(",")
+          .map((s) => s.trim())
+          .filter((s) => s !== "")
+          .map(Number);
+        if (x_evals.length === 0 || x_evals.some((v) => !Number.isFinite(v))) {
+          throw new Error("Ingresa al menos un punto x* numérico válido (ej: 1.5, 2.5).");
+        }
+        const rawOrd = (document.getElementById("p-ordenes-m5")?.value || "").trim();
+        const ordenes = rawOrd
+          ? rawOrd
+              .split(",")
+              .map((s) => s.trim())
+              .filter((s) => s !== "")
+              .map(Number)
+          : null;
+        if (ordenes && ordenes.some((g) => !Number.isInteger(g) || g < 1 || g >= x_vals.length)) {
+          throw new Error(`Los órdenes deben ser enteros entre 1 y ${x_vals.length - 1}.`);
+        }
+        const func_exacta = (document.getElementById("p-func-exacta")?.value || "").trim() || null;
+        const factor_conversion = this._readNumber("p-factor-conv", "Factor de conversión", {
+          required: false,
+        });
+        return {
+          metodo: sub,
+          x_vals,
+          y_vals,
+          x_eval: x_evals[0],
+          x_evals,
+          ordenes,
+          func_exacta,
+          factor_conversion,
+          decimales: 6,
+        };
+      }
       const x_eval = this._readNumber("p-xeval", "Valor x* a interpolar");
       return { metodo: sub, x_vals, y_vals, x_eval };
     }
@@ -990,6 +1052,22 @@ class ModulesUIController {
       html += `<div class="res-math-row"><strong>Modelo ajustado:</strong> <span class="katex-render" data-tex="${res.ecuacion_latex}"></span></div>`;
     }
 
+    if (res.reporte_texto) {
+      const escapedReport = String(res.reporte_texto)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+      html += `
+        <div style="margin-top:8px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+            <strong style="font-size:0.82rem; color:#0f172a;">Reporte Paso a Paso (Word / Excel):</strong>
+            <button type="button" id="btn-copy-reporte" class="btn-secondary-sm">Copiar Reporte</button>
+          </div>
+          <pre id="pre-reporte-texto" style="background:#0f172a; color:#e2e8f0; padding:10px; border-radius:8px; font-size:0.74rem; line-height:1.45; overflow-x:auto; white-space:pre;">${escapedReport}</pre>
+        </div>
+      `;
+    }
+
     const skipKeys = new Set([
       "exito",
       "mensaje",
@@ -1004,6 +1082,11 @@ class ModulesUIController {
       "mejor_modelo",
       "descartados",
       "detalles",
+      "resultados_puntos",
+      "comparacion_ordenes",
+      "analisis_errores_exactos",
+      "curvas_extra",
+      "reporte_texto",
       "f_latex",
       "fd1_latex",
       "fd2_latex",
@@ -1033,6 +1116,24 @@ class ModulesUIController {
       html += `<div class="res-kv"><span>${prettyKey}:</span> <strong>${prettyVal}</strong></div>`;
     });
     html += `</div>`;
+
+    if (Array.isArray(res.resultados_puntos) && res.resultados_puntos.length > 0) {
+      const flatPuntos = res.resultados_puntos.map((rp) => ({
+        "x*": rp.x_p,
+        Tipo: rp.tipo,
+        ...(rp.estimaciones || {}),
+        ...(rp.estimaciones_convertidas || {}),
+      }));
+      html += this._buildGenericTableHtml("Evaluación por Punto y Orden", flatPuntos);
+    }
+
+    if (Array.isArray(res.comparacion_ordenes) && res.comparacion_ordenes.length > 0) {
+      html += this._buildGenericTableHtml("Comparación entre Órdenes Consecutivos", res.comparacion_ordenes);
+    }
+
+    if (Array.isArray(res.analisis_errores_exactos) && res.analisis_errores_exactos.length > 0) {
+      html += this._buildGenericTableHtml("Análisis de Error vs. Función Exacta", res.analisis_errores_exactos);
+    }
 
     if (Array.isArray(res.iteraciones) && res.iteraciones.length > 0) {
       html += this._buildGenericTableHtml("Tabla de Iteraciones / Desglose", res.iteraciones);
@@ -1120,6 +1221,20 @@ class ModulesUIController {
 
     this.resultsContainer.innerHTML = html;
 
+    document.getElementById("btn-copy-reporte")?.addEventListener("click", async (ev) => {
+      const txt = res.reporte_texto || "";
+      if (!txt) return;
+      try {
+        await navigator.clipboard.writeText(txt);
+        ev.target.textContent = "Copiado";
+        setTimeout(() => {
+          ev.target.textContent = "Copiar Reporte";
+        }, 1800);
+      } catch (_) {
+        this._showFormError("No se pudo copiar automáticamente; selecciona el bloque negro y presiona Ctrl+C.");
+      }
+    });
+
     if (window.katex) {
       this.resultsContainer.querySelectorAll(".katex-render").forEach((el) => {
         window.katex.render(el.getAttribute("data-tex") || "", el, { throwOnError: false });
@@ -1146,6 +1261,8 @@ class ModulesUIController {
         }
         const formXInput = document.getElementById("p-xeval");
         if (formXInput) formXInput.value = nextX;
+        const formXMultiInput = document.getElementById("p-xevals-multi");
+        if (formXMultiInput) formXMultiInput.value = nextX;
         this.executeActiveMethod(true);
       };
 
